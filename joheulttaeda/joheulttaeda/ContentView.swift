@@ -6,6 +6,8 @@
 //
 
 import SwiftUI
+import AVFoundation
+import UIKit
 
 struct ContentView: View {
     @State private var selectedTab: HomeTab = .home
@@ -49,14 +51,14 @@ struct ContentView: View {
                         )
                         .frame(width: width, height: lineY + 28)
 
-                    HeaderView()
-                        .frame(width: width, height: lineY)
-
-                    HangingMemoryCard {
+                    HeaderView {
                         withAnimation(.smooth(duration: 0.62, extraBounce: 0)) {
                             selectedTab = .memory
                         }
                     }
+                        .frame(width: width, height: lineY)
+
+                    HangingMemoryCard()
                         .frame(width: cardWidth, height: cardHeight)
                         .rotationEffect(.degrees(5.2))
                         .position(
@@ -117,6 +119,7 @@ private struct IdeaFeedView: View {
     @State private var seasonFilter = "Season"
     @State private var spotFilter = "Spot"
     @State private var chromeIsVisible = false
+    @State private var selectedPhotos: Set<IdeaTransitionElement> = []
 
     var body: some View {
         GeometryReader { proxy in
@@ -225,6 +228,22 @@ private struct IdeaFeedView: View {
                     .padding(.bottom, 58)
                     .opacity(chromeIsVisible ? 1 : 0)
                     .accessibilityHidden(true)
+
+                if !selectedPhotos.isEmpty {
+                    selectionSummary
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.top, 10)
+                        .padding(.trailing, 16)
+                        .transition(.scale(scale: 0.88, anchor: .trailing).combined(with: .opacity))
+                        .zIndex(3)
+
+                    CameraLauncherButton()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 70)
+                        .transition(.scale(scale: 0.82).combined(with: .opacity))
+                        .zIndex(4)
+                }
             }
         }
         .onAppear {
@@ -234,6 +253,42 @@ private struct IdeaFeedView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("아이디어 피드")
+        .sensoryFeedback(.selection, trigger: selectedPhotos.count)
+    }
+
+    private var selectionSummary: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+
+            Text("\(selectedPhotos.count)")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+
+            Button {
+                withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+                    selectedPhotos.removeAll()
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 24, height: 24)
+                    .background(.white.opacity(0.88), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("사진 선택 모두 해제")
+        }
+        .foregroundStyle(DesignColor.darkText)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(DesignColor.navigation.opacity(0.96), in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.black.opacity(0.16), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(selectedPhotos.count)장의 사진 선택됨")
     }
 
     private func folderButton(_ folder: IdeaFolder, width: CGFloat) -> some View {
@@ -268,13 +323,51 @@ private struct IdeaFeedView: View {
         width: CGFloat,
         height: CGFloat
     ) -> some View {
-        FeedPhotoCard(squareSize: squareSize)
-            .frame(width: width, height: height)
-            .matchedGeometryEffect(
-                id: element,
-                in: transitionNamespace,
-                isSource: false
-            )
+        let isSelected = selectedPhotos.contains(element)
+
+        return Button {
+            withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+                if isSelected {
+                    selectedPhotos.remove(element)
+                } else {
+                    selectedPhotos.insert(element)
+                }
+            }
+        } label: {
+            FeedPhotoCard(squareSize: squareSize)
+                .frame(width: width, height: height)
+                .matchedGeometryEffect(
+                    id: element,
+                    in: transitionNamespace,
+                    isSource: false
+                )
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(DesignColor.blue, lineWidth: 3)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(width: 27, height: 27)
+                            .background(DesignColor.blue, in: Circle())
+                            .overlay {
+                                Circle().stroke(.white, lineWidth: 2)
+                            }
+                            .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+                            .padding(8)
+                            .transition(.scale.combined(with: .opacity))
+                    }
+                }
+                .scaleEffect(isSelected ? 0.975 : 1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("아이디어 사진")
+        .accessibilityHint(isSelected ? "탭하여 선택을 해제합니다" : "탭하여 사진을 선택합니다")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -343,6 +436,11 @@ private struct ExpandedFolderView: View {
     let onDismiss: () -> Void
 
     @State private var photosAreExpanded = false
+    @State private var albumIsPresented = false
+    @State private var albumSwipeOffset: CGFloat = 0
+    @State private var isFinishingAlbumSwipe = false
+    @State private var selectedAlbumPhotos: Set<Int> = []
+    @Namespace private var albumTransitionNamespace
 
     var body: some View {
         GeometryReader { proxy in
@@ -353,122 +451,131 @@ private struct ExpandedFolderView: View {
                 DesignColor.background
                     .ignoresSafeArea()
 
-                backgroundFolder(color: DesignColor.pink, width: photoWidth * 1.10, height: 150)
-                    .position(x: size.width * 0.31, y: size.height * 0.42)
+                if albumIsPresented {
+                    IdeaFolderAlbumView(
+                        folder: folder,
+                        photos: IdeaAlbumPhoto.all,
+                        transitionNamespace: albumTransitionNamespace,
+                        selectedPhotos: $selectedAlbumPhotos,
+                        onBack: closeAlbum
+                    )
+                    .transition(.identity)
+                } else {
+                    ZStack {
+                        backgroundFolder(color: DesignColor.pink, width: photoWidth * 1.10, height: 150)
+                            .position(x: size.width * 0.31, y: size.height * 0.42)
 
-                backgroundFolder(color: DesignColor.blue, width: photoWidth * 1.04, height: 150)
-                    .position(x: size.width * 0.72, y: size.height * 0.57)
+                        backgroundFolder(color: DesignColor.blue, width: photoWidth * 1.04, height: 150)
+                            .position(x: size.width * 0.72, y: size.height * 0.57)
 
-                backgroundFolder(color: DesignColor.yellow, width: photoWidth * 1.10, height: 145)
-                    .position(x: size.width * 0.34, y: size.height * 0.76)
+                        backgroundFolder(color: DesignColor.yellow, width: photoWidth * 1.10, height: 145)
+                            .position(x: size.width * 0.34, y: size.height * 0.76)
 
-                expandedPhoto(
-                    width: photoWidth,
-                    height: photoWidth * 1.50,
-                    square: 13,
-                    angle: 4,
-                    x: size.width * 0.36,
-                    y: size.height * 0.26,
-                    index: 0,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[0],
+                            width: photoWidth,
+                            height: photoWidth * 1.50,
+                            angle: 4,
+                            x: size.width * 0.36,
+                            y: size.height * 0.26,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth,
-                    height: photoWidth * 1.47,
-                    square: 13,
-                    angle: -4,
-                    x: size.width * 0.68,
-                    y: size.height * 0.27,
-                    index: 1,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[1],
+                            width: photoWidth,
+                            height: photoWidth * 1.47,
+                            angle: -4,
+                            x: size.width * 0.68,
+                            y: size.height * 0.27,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth * 0.98,
-                    height: photoWidth * 0.95,
-                    square: 9,
-                    angle: 3,
-                    x: size.width * 0.36,
-                    y: size.height * 0.39,
-                    index: 2,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[2],
+                            width: photoWidth * 0.98,
+                            height: photoWidth * 0.95,
+                            angle: 3,
+                            x: size.width * 0.36,
+                            y: size.height * 0.39,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth * 0.98,
-                    height: photoWidth * 0.98,
-                    square: 10,
-                    angle: -7,
-                    x: size.width * 0.70,
-                    y: size.height * 0.43,
-                    index: 3,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[3],
+                            width: photoWidth * 0.98,
+                            height: photoWidth * 0.98,
+                            angle: -7,
+                            x: size.width * 0.70,
+                            y: size.height * 0.43,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth * 0.96,
-                    height: photoWidth * 1.47,
-                    square: 15,
-                    angle: -12,
-                    x: size.width * 0.35,
-                    y: size.height * 0.58,
-                    index: 4,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[4],
+                            width: photoWidth * 0.96,
+                            height: photoWidth * 1.47,
+                            angle: -12,
+                            x: size.width * 0.35,
+                            y: size.height * 0.58,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth * 0.96,
-                    height: photoWidth * 1.45,
-                    square: 14,
-                    angle: 6,
-                    x: size.width * 0.69,
-                    y: size.height * 0.61,
-                    index: 5,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[5],
+                            width: photoWidth * 0.96,
+                            height: photoWidth * 1.45,
+                            angle: 6,
+                            x: size.width * 0.69,
+                            y: size.height * 0.61,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth * 0.94,
-                    height: photoWidth * 1.03,
-                    square: 10,
-                    angle: -3,
-                    x: size.width * 0.35,
-                    y: size.height * 0.79,
-                    index: 6,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[6],
+                            width: photoWidth * 0.94,
+                            height: photoWidth * 1.03,
+                            angle: -3,
+                            x: size.width * 0.35,
+                            y: size.height * 0.79,
+                            canvasHeight: size.height
+                        )
 
-                expandedPhoto(
-                    width: photoWidth * 0.92,
-                    height: photoWidth * 1.02,
-                    square: 9,
-                    angle: 17,
-                    x: size.width * 0.68,
-                    y: size.height * 0.80,
-                    index: 7,
-                    canvasHeight: size.height
-                )
+                        expandedPhoto(
+                            IdeaAlbumPhoto.all[7],
+                            width: photoWidth * 0.92,
+                            height: photoWidth * 1.02,
+                            angle: 17,
+                            x: size.width * 0.68,
+                            y: size.height * 0.80,
+                            canvasHeight: size.height
+                        )
 
-                Button {
-                    onDismiss()
-                } label: {
-                    ExpandedFolderPocket(folder: folder)
-                        .frame(width: size.width * 0.84, height: 170)
-                }
-                .buttonStyle(.plain)
-                .position(x: size.width / 2, y: size.height - 85)
-                .accessibilityHint("아이디어 피드로 돌아갑니다")
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 24)
-                    .onEnded { value in
-                        if value.translation.height > 80 {
+                        Button {
                             onDismiss()
+                        } label: {
+                            ExpandedFolderPocket(folder: folder)
+                                .frame(width: size.width * 0.84, height: 170)
                         }
+                        .buttonStyle(.plain)
+                        .position(x: size.width / 2, y: size.height - 85)
+                        .accessibilityHint("아이디어 피드로 돌아갑니다")
                     }
-            )
+                    .offset(y: max(0, albumSwipeOffset) * 0.18)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(folderPreviewGesture)
+                    .transition(.identity)
+                }
+
+                if albumIsPresented && !selectedAlbumPhotos.isEmpty {
+                    CameraLauncherButton()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 22)
+                        .transition(.scale(scale: 0.82).combined(with: .opacity))
+                        .zIndex(100)
+                }
+            }
         }
         .onAppear {
             withAnimation(.spring(response: 0.62, dampingFraction: 0.78)) {
@@ -477,31 +584,102 @@ private struct ExpandedFolderView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(folder.title.replacingOccurrences(of: "\n", with: " "))
+        .accessibilityAction(named: "앨범 열기", openAlbum)
         .accessibilityAction(.escape, onDismiss)
+        .sensoryFeedback(.selection, trigger: selectedAlbumPhotos.count)
     }
 
     private func expandedPhoto(
+        _ photo: IdeaAlbumPhoto,
         width: CGFloat,
         height: CGFloat,
-        square: CGFloat,
         angle: Double,
         x: CGFloat,
         y: CGFloat,
-        index: Int,
         canvasHeight: CGFloat
     ) -> some View {
-        ExpandedPhotoCard(squareSize: square)
+        let liftMultiplier = 0.22 + (CGFloat(photo.id) * 0.012)
+
+        return ExpandedPhotoCard(squareSize: photo.squareSize)
             .frame(width: width, height: height)
+            .matchedGeometryEffect(
+                id: photo.id,
+                in: albumTransitionNamespace,
+                isSource: true
+            )
             .rotationEffect(.degrees(photosAreExpanded ? angle : 0))
             .scaleEffect(photosAreExpanded ? 1 : 0.72)
             .position(x: x, y: y)
             .offset(y: photosAreExpanded ? 0 : canvasHeight - y + 40)
+            .offset(y: min(0, albumSwipeOffset) * liftMultiplier)
             .opacity(photosAreExpanded ? 1 : 0)
             .animation(
                 .spring(response: 0.58, dampingFraction: 0.76)
-                    .delay(Double(index) * 0.035),
+                    .delay(Double(photo.id) * 0.035),
                 value: photosAreExpanded
             )
+    }
+
+    private var folderPreviewGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard photosAreExpanded, !isFinishingAlbumSwipe else { return }
+                albumSwipeOffset = min(100, max(-110, value.translation.height))
+            }
+            .onEnded { value in
+                guard !isFinishingAlbumSwipe else { return }
+
+                let movedUp = value.translation.height < -52
+                let projectedUp = value.predictedEndTranslation.height < -88
+                let movedDown = value.translation.height > 80
+                let projectedDown = value.predictedEndTranslation.height > 130
+
+                if movedUp || projectedUp {
+                    openAlbum()
+                } else if movedDown || projectedDown {
+                    onDismiss()
+                } else {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                        albumSwipeOffset = 0
+                    }
+                }
+            }
+    }
+
+    private func openAlbum() {
+        guard !albumIsPresented, !isFinishingAlbumSwipe else { return }
+        isFinishingAlbumSwipe = true
+
+        let progress = min(1, max(0, -albumSwipeOffset / 110))
+        let finishDuration = 0.08 + ((1 - progress) * 0.12)
+
+        withAnimation(
+            .smooth(duration: finishDuration, extraBounce: 0),
+            completionCriteria: .logicallyComplete
+        ) {
+            albumSwipeOffset = -110
+        } completion: {
+            withAnimation(
+                .smooth(duration: 0.64, extraBounce: 0),
+                completionCriteria: .logicallyComplete
+            ) {
+                albumIsPresented = true
+            } completion: {
+                var transaction = Transaction(animation: nil)
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    albumSwipeOffset = 0
+                    isFinishingAlbumSwipe = false
+                }
+            }
+        }
+    }
+
+    private func closeAlbum() {
+        withAnimation(.smooth(duration: 0.58, extraBounce: 0)) {
+            albumIsPresented = false
+            selectedAlbumPhotos.removeAll()
+        }
     }
 
     private func backgroundFolder(color: Color, width: CGFloat, height: CGFloat) -> some View {
@@ -512,6 +690,317 @@ private struct ExpandedFolderView: View {
                     .stroke(.black.opacity(0.55), lineWidth: 0.9)
             }
             .frame(width: width, height: height)
+    }
+}
+
+private struct IdeaAlbumPhoto: Identifiable {
+    let id: Int
+    let squareSize: CGFloat
+    let albumAspectRatio: CGFloat
+
+    static let all: [IdeaAlbumPhoto] = [
+        IdeaAlbumPhoto(id: 0, squareSize: 13, albumAspectRatio: 1.34),
+        IdeaAlbumPhoto(id: 1, squareSize: 13, albumAspectRatio: 1.02),
+        IdeaAlbumPhoto(id: 2, squareSize: 9, albumAspectRatio: 0.88),
+        IdeaAlbumPhoto(id: 3, squareSize: 10, albumAspectRatio: 1.26),
+        IdeaAlbumPhoto(id: 4, squareSize: 15, albumAspectRatio: 1.48),
+        IdeaAlbumPhoto(id: 5, squareSize: 14, albumAspectRatio: 1.16),
+        IdeaAlbumPhoto(id: 6, squareSize: 10, albumAspectRatio: 0.96),
+        IdeaAlbumPhoto(id: 7, squareSize: 9, albumAspectRatio: 1.32)
+    ]
+}
+
+private struct IdeaFolderAlbumView: View {
+    let folder: IdeaFolder
+    let photos: [IdeaAlbumPhoto]
+    let transitionNamespace: Namespace.ID
+    @Binding var selectedPhotos: Set<Int>
+    let onBack: () -> Void
+
+    @State private var chromeIsVisible = false
+
+    var body: some View {
+        GeometryReader { proxy in
+            let columnWidth = (proxy.size.width - 54) / 2
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 18) {
+                    albumHeader
+
+                    HStack(alignment: .top, spacing: 14) {
+                        albumColumn(
+                            photos.filter { $0.id.isMultiple(of: 2) },
+                            width: columnWidth
+                        )
+
+                        albumColumn(
+                            photos.filter { !$0.id.isMultiple(of: 2) },
+                            width: columnWidth
+                        )
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 14)
+                .padding(.bottom, 54)
+            }
+            .scrollIndicators(.hidden)
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.28).delay(0.16)) {
+                chromeIsVisible = true
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(folder.title.replacingOccurrences(of: "\n", with: " ")) 앨범")
+    }
+
+    private var albumHeader: some View {
+        HStack(spacing: 12) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(DesignColor.text)
+                    .frame(width: 40, height: 40)
+                    .background(DesignColor.navigation, in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("폴더 미리보기로 돌아가기")
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Album")
+                    .font(.system(size: 25, weight: .bold, design: .rounded))
+                    .foregroundStyle(DesignColor.text)
+
+                Text(folder.title.replacingOccurrences(of: "\n", with: " "))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DesignColor.darkText)
+                    .lineLimit(1)
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(folder.color.opacity(0.86), in: Capsule())
+            }
+
+            Spacer(minLength: 0)
+
+            if selectedPhotos.isEmpty {
+                Text("\(photos.count) photos")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DesignColor.text.opacity(0.78))
+            } else {
+                CompactPhotoSelectionSummary(
+                    count: selectedPhotos.count,
+                    onClear: clearSelection
+                )
+                .transition(.scale(scale: 0.88, anchor: .trailing).combined(with: .opacity))
+            }
+        }
+        .opacity(chromeIsVisible ? 1 : 0)
+        .offset(y: chromeIsVisible ? 0 : -6)
+    }
+
+    private func albumColumn(_ columnPhotos: [IdeaAlbumPhoto], width: CGFloat) -> some View {
+        VStack(spacing: 16) {
+            ForEach(columnPhotos) { photo in
+                let isSelected = selectedPhotos.contains(photo.id)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Button {
+                        toggleSelection(photo.id)
+                    } label: {
+                        ExpandedPhotoCard(squareSize: photo.squareSize)
+                            .frame(width: width, height: width * photo.albumAspectRatio)
+                            .matchedGeometryEffect(
+                                id: photo.id,
+                                in: transitionNamespace,
+                                isSource: false
+                            )
+                            .overlay {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                        .stroke(DesignColor.blue, lineWidth: 3)
+                                }
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                if isSelected {
+                                    PhotoSelectionBadge()
+                                        .padding(8)
+                                        .transition(.scale.combined(with: .opacity))
+                                }
+                            }
+                            .scaleEffect(isSelected ? 0.975 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Moment \(photo.id + 1)")
+                    .accessibilityHint(isSelected ? "탭하여 선택을 해제합니다" : "탭하여 사진을 선택합니다")
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+
+                    Text("Moment \(photo.id + 1)")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(DesignColor.text)
+                        .opacity(chromeIsVisible ? 1 : 0)
+                }
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: Int) {
+        withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+            if selectedPhotos.contains(id) {
+                selectedPhotos.remove(id)
+            } else {
+                selectedPhotos.insert(id)
+            }
+        }
+    }
+
+    private func clearSelection() {
+        withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+            selectedPhotos.removeAll()
+        }
+    }
+}
+
+private struct PhotoSelectionBadge: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 12, weight: .heavy))
+            .foregroundStyle(.white)
+            .frame(width: 27, height: 27)
+            .background(DesignColor.blue, in: Circle())
+            .overlay {
+                Circle().stroke(.white, lineWidth: 2)
+            }
+            .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct CompactPhotoSelectionSummary: View {
+    let count: Int
+    let onClear: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 13, weight: .bold))
+
+            Text("\(count)")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+
+            Button(action: onClear) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .frame(width: 24, height: 24)
+                    .background(.white.opacity(0.88), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("사진 선택 모두 해제")
+        }
+        .foregroundStyle(DesignColor.darkText)
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(DesignColor.navigation.opacity(0.96), in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(.black.opacity(0.16), lineWidth: 0.8)
+        }
+        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(count)장의 사진 선택됨")
+    }
+}
+
+private struct CameraLauncherButton: View {
+    @State private var cameraIsPresented = false
+    @State private var cameraAlertIsPresented = false
+
+    var body: some View {
+        Button(action: openCamera) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(DesignColor.darkText, in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.92), lineWidth: 2)
+                }
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("카메라 열기")
+        .accessibilityHint("선택한 사진과 함께 사용할 새 사진을 촬영합니다")
+        .fullScreenCover(isPresented: $cameraIsPresented) {
+            CameraCaptureView()
+                .ignoresSafeArea()
+        }
+        .alert("카메라를 사용할 수 없습니다", isPresented: $cameraAlertIsPresented) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text("기기에 카메라가 있는지 확인하고 설정에서 카메라 접근 권한을 허용해주세요.")
+        }
+    }
+
+    private func openCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraAlertIsPresented = true
+            return
+        }
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            cameraIsPresented = true
+        case .notDetermined:
+            Task {
+                if await AVCaptureDevice.requestAccess(for: .video) {
+                    cameraIsPresented = true
+                } else {
+                    cameraAlertIsPresented = true
+                }
+            }
+        case .denied, .restricted:
+            cameraAlertIsPresented = true
+        @unknown default:
+            cameraAlertIsPresented = true
+        }
+    }
+}
+
+private struct CameraCaptureView: UIViewControllerRepresentable {
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        private let parent: CameraCaptureView
+
+        init(parent: CameraCaptureView) {
+            self.parent = parent
+        }
+
+        func imagePickerController(
+            _ picker: UIImagePickerController,
+            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+        ) {
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
     }
 }
 
@@ -687,7 +1176,14 @@ private enum DesignColor {
 }
 
 private struct HeaderView: View {
+    let onSwipeDown: () -> Void
+
+    @State private var pullOffset: CGFloat = 0
+    @State private var isFinishingPull = false
+
     var body: some View {
+        let pullProgress = min(1, max(0, pullOffset / 110))
+
         ZStack {
             VStack(spacing: 1) {
                 Image(systemName: "chevron.up")
@@ -697,7 +1193,15 @@ private struct HeaderView: View {
                     .font(.system(size: 27, weight: .bold, design: .rounded))
             }
             .foregroundStyle(DesignColor.text)
-            .offset(y: 10)
+            .frame(width: 190, height: 78)
+            .scaleEffect(1 + (0.025 * pullProgress))
+            .offset(y: 10 + (22 * pullProgress))
+            .contentShape(Rectangle())
+            .gesture(downwardSwipeGesture)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Memory")
+            .accessibilityHint("아래로 쓸어내려 메모리 화면을 엽니다")
+            .accessibilityAction(named: "메모리 화면 열기", onSwipeDown)
 
             ProfileButton()
                 .frame(width: 42, height: 42)
@@ -705,6 +1209,40 @@ private struct HeaderView: View {
                 .padding(.top, 8)
                 .padding(.trailing, 18)
         }
+    }
+
+    private var downwardSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard !isFinishingPull else { return }
+                pullOffset = min(110, max(0, value.translation.height))
+            }
+            .onEnded { value in
+                guard !isFinishingPull else { return }
+
+                let movedDown = value.translation.height > 48
+                let projectedDown = value.predictedEndTranslation.height > 82
+
+                if movedDown || projectedDown {
+                    isFinishingPull = true
+
+                    let progress = min(1, max(0, pullOffset / 110))
+                    let finishDuration = 0.08 + ((1 - progress) * 0.12)
+
+                    withAnimation(
+                        .smooth(duration: finishDuration, extraBounce: 0),
+                        completionCriteria: .logicallyComplete
+                    ) {
+                        pullOffset = 110
+                    } completion: {
+                        onSwipeDown()
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                        pullOffset = 0
+                    }
+                }
+            }
     }
 }
 
@@ -754,17 +1292,11 @@ private struct Clothesline: Shape {
 }
 
 private struct HangingMemoryCard: View {
-    let onSwipeDown: () -> Void
-
-    @State private var pullOffset: CGFloat = 0
-    @State private var isFinishingPull = false
-
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let inset = size.width * 0.075
             let photoHeight = size.height * 0.64
-            let pullProgress = min(1, max(0, pullOffset / 110))
 
             ZStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -793,51 +1325,10 @@ private struct HangingMemoryCard: View {
                     .padding(.horizontal, 14)
                     .position(x: size.width / 2, y: size.height * 0.83)
             }
-            .scaleEffect(1 + (0.018 * pullProgress), anchor: .top)
-            .rotationEffect(.degrees(-3.4 * pullProgress), anchor: .top)
-            .offset(y: 42 * pullProgress)
-            .contentShape(Rectangle())
-            .gesture(downwardSwipeGesture)
         }
         .shadow(color: .black.opacity(0.035), radius: 1, y: 1)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("추억 사진 카드")
-        .accessibilityHint("아래로 쓸어내려 메모리 화면을 엽니다")
-        .accessibilityAction(named: "메모리 화면 열기", onSwipeDown)
-    }
-
-    private var downwardSwipeGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onChanged { value in
-                guard !isFinishingPull else { return }
-                pullOffset = min(110, max(0, value.translation.height))
-            }
-            .onEnded { value in
-                guard !isFinishingPull else { return }
-
-                let movedDown = value.translation.height > 48
-                let projectedDown = value.predictedEndTranslation.height > 82
-
-                if movedDown || projectedDown {
-                    isFinishingPull = true
-
-                    let progress = min(1, max(0, pullOffset / 110))
-                    let finishDuration = 0.08 + ((1 - progress) * 0.12)
-
-                    withAnimation(
-                        .smooth(duration: finishDuration, extraBounce: 0),
-                        completionCriteria: .logicallyComplete
-                    ) {
-                        pullOffset = 110
-                    } completion: {
-                        onSwipeDown()
-                    }
-                } else {
-                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
-                        pullOffset = 0
-                    }
-                }
-            }
     }
 }
 
