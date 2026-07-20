@@ -10,6 +10,7 @@ import SwiftUI
 struct ContentView: View {
     @State private var selectedTab: HomeTab = .home
     @State private var expandedFolder: IdeaFolder?
+    @Namespace private var ideaTransitionNamespace
 
     var body: some View {
         GeometryReader { proxy in
@@ -26,7 +27,7 @@ struct ContentView: View {
                     .ignoresSafeArea()
 
                 if selectedTab == .idea {
-                    IdeaFeedView { folder in
+                    IdeaFeedView(transitionNamespace: ideaTransitionNamespace) { folder in
                         withAnimation(.easeInOut(duration: 0.22)) {
                             expandedFolder = folder
                         }
@@ -64,7 +65,14 @@ struct ContentView: View {
                         .frame(width: 34, height: 72)
                         .position(x: width / 2, y: lineY + 22)
 
-                    IdeaStackView()
+                    IdeaStackView(
+                        transitionNamespace: ideaTransitionNamespace,
+                        onSwipeUp: {
+                            withAnimation(.spring(response: 0.72, dampingFraction: 0.86)) {
+                                selectedTab = .idea
+                            }
+                        }
+                    )
                         .frame(width: width, height: stackHeight)
                         .position(
                             x: width / 2,
@@ -99,6 +107,7 @@ struct ContentView: View {
 }
 
 private struct IdeaFeedView: View {
+    let transitionNamespace: Namespace.ID
     let onFolderTap: (IdeaFolder) -> Void
 
     @State private var ageFilter = "Age"
@@ -143,26 +152,46 @@ private struct IdeaFeedView: View {
 
                                 folderButton(.cherryBlossom, width: cardWidth)
 
-                                FeedPhotoCard(squareSize: 8)
-                                    .frame(width: cardWidth, height: cardWidth * 0.82)
+                                transitionPhoto(
+                                    .photoOne,
+                                    squareSize: 8,
+                                    width: cardWidth,
+                                    height: cardWidth * 0.82
+                                )
 
-                                FeedPhotoCard(squareSize: 13)
-                                    .frame(width: cardWidth, height: cardWidth * 1.56)
+                                transitionPhoto(
+                                    .photoFour,
+                                    squareSize: 13,
+                                    width: cardWidth,
+                                    height: cardWidth * 1.56
+                                )
 
                                 folderButton(.warmAfternoon, width: cardWidth)
                             }
 
                             VStack(spacing: 24) {
-                                FeedPhotoCard(squareSize: 14)
-                                    .frame(width: cardWidth, height: cardWidth * 1.55)
+                                transitionPhoto(
+                                    .photoTwo,
+                                    squareSize: 14,
+                                    width: cardWidth,
+                                    height: cardWidth * 1.55
+                                )
 
                                 folderButton(.rainyDay, width: cardWidth)
 
-                                FeedPhotoCard(squareSize: 13)
-                                    .frame(width: cardWidth, height: cardWidth * 1.60)
+                                transitionPhoto(
+                                    .photoThree,
+                                    squareSize: 13,
+                                    width: cardWidth,
+                                    height: cardWidth * 1.60
+                                )
 
-                                FeedPhotoCard(squareSize: 9)
-                                    .frame(width: cardWidth, height: cardWidth * 0.86)
+                                transitionPhoto(
+                                    .photoFive,
+                                    squareSize: 9,
+                                    width: cardWidth,
+                                    height: cardWidth * 0.86
+                                )
 
                                 folderButton(.littleMoments, width: cardWidth)
                             }
@@ -198,12 +227,53 @@ private struct IdeaFeedView: View {
         Button {
             onFolderTap(folder)
         } label: {
-            FeedFolderCard(color: folder.color, title: folder.title)
-                .frame(width: width, height: 126)
+            folderLabel(folder, width: width)
         }
         .buttonStyle(.plain)
         .accessibilityHint("폴더의 사진을 펼칩니다")
     }
+
+    @ViewBuilder
+    private func folderLabel(_ folder: IdeaFolder, width: CGFloat) -> some View {
+        if let transitionElement = folder.transitionElement {
+            FeedFolderCard(color: folder.color, title: folder.title)
+                .frame(width: width, height: 126)
+                .matchedGeometryEffect(
+                    id: transitionElement,
+                    in: transitionNamespace,
+                    isSource: false
+                )
+        } else {
+            FeedFolderCard(color: folder.color, title: folder.title)
+                .frame(width: width, height: 126)
+        }
+    }
+
+    private func transitionPhoto(
+        _ element: IdeaTransitionElement,
+        squareSize: CGFloat,
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        FeedPhotoCard(squareSize: squareSize)
+            .frame(width: width, height: height)
+            .matchedGeometryEffect(
+                id: element,
+                in: transitionNamespace,
+                isSource: false
+            )
+    }
+}
+
+private enum IdeaTransitionElement: Hashable {
+    case yellowFolder
+    case pinkFolder
+    case blueFolder
+    case photoOne
+    case photoTwo
+    case photoThree
+    case photoFour
+    case photoFive
 }
 
 private enum IdeaFolder: String, Identifiable {
@@ -238,6 +308,19 @@ private enum IdeaFolder: String, Identifiable {
             DesignColor.pink
         case .rainyDay:
             DesignColor.blue
+        }
+    }
+
+    var transitionElement: IdeaTransitionElement? {
+        switch self {
+        case .amusementPark:
+            .yellowFolder
+        case .cherryBlossom:
+            .pinkFolder
+        case .rainyDay:
+            .blueFolder
+        case .warmAfternoon, .littleMoments:
+            nil
         }
     }
 }
@@ -749,6 +832,11 @@ private struct CheckerboardView: View {
 }
 
 private struct IdeaStackView: View {
+    let transitionNamespace: Namespace.ID
+    let onSwipeUp: () -> Void
+
+    @GestureState private var swipeOffset: CGFloat = 0
+
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
@@ -758,10 +846,20 @@ private struct IdeaStackView: View {
             ZStack {
                 ZStack {
                     memo(width: 74, height: 116, square: 9)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.photoFour,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(-12))
                         .position(x: centerX - 103 * scale, y: 83)
 
                     memo(width: 79, height: 125, square: 9)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.photoFive,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(-2))
                         .position(x: centerX - 56 * scale, y: 52)
 
@@ -778,10 +876,20 @@ private struct IdeaStackView: View {
                         .position(x: centerX + 107 * scale, y: 77)
 
                     folder(color: DesignColor.pink, width: 215, height: 125)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.pinkFolder,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(-8))
                         .position(x: centerX - 77 * scale, y: 117)
 
                     folder(color: DesignColor.yellow, width: 246, height: 137)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.yellowFolder,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(2))
                         .position(x: centerX, y: 103)
 
@@ -790,18 +898,38 @@ private struct IdeaStackView: View {
                         .position(x: centerX + 27 * scale, y: 96)
 
                     folder(color: DesignColor.blue, width: 216, height: 124)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.blueFolder,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(5))
                         .position(x: centerX + 91 * scale, y: 128)
 
                     memo(width: 156, height: 168, square: 12)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.photoOne,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(-5))
                         .position(x: centerX - 102 * scale, y: 191)
 
                     memo(width: 150, height: 172, square: 13)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.photoTwo,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(3))
                         .position(x: centerX - 2 * scale, y: 192)
 
                     memo(width: 145, height: 158, square: 12)
+                        .matchedGeometryEffect(
+                            id: IdeaTransitionElement.photoThree,
+                            in: transitionNamespace,
+                            isSource: true
+                        )
                         .rotationEffect(.degrees(5))
                         .position(x: centerX + 102 * scale, y: 196)
                 }
@@ -821,15 +949,37 @@ private struct IdeaStackView: View {
                     Text("Idea")
                         .font(.system(size: 25, weight: .bold, design: .rounded))
 
-                    Image(systemName: "chevron.down")
+                    Image(systemName: "chevron.up")
                         .font(.system(size: 19, weight: .bold))
                 }
                 .foregroundStyle(DesignColor.text)
                 .position(x: centerX, y: size.height - 67)
             }
+            .offset(y: max(-30, min(0, swipeOffset * 0.26)))
+            .contentShape(Rectangle())
+            .gesture(upwardSwipeGesture)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("아이디어 카드 모음")
+        .accessibilityHint("위로 쓸어올려 아이디어 피드를 엽니다")
+        .accessibilityAction(named: "아이디어 피드 열기", onSwipeUp)
+    }
+
+    private var upwardSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($swipeOffset) { value, state, _ in
+                if value.translation.height < 0 {
+                    state = value.translation.height
+                }
+            }
+            .onEnded { value in
+                let movedUp = value.translation.height < -48
+                let projectedUp = value.predictedEndTranslation.height < -82
+
+                if movedUp || projectedUp {
+                    onSwipeUp()
+                }
+            }
     }
 
     private func memo(width: CGFloat, height: CGFloat, square: CGFloat) -> some View {
@@ -920,7 +1070,11 @@ private struct BottomNavigation: View {
     @ViewBuilder
     private func tabButton(_ tab: HomeTab, title: String?, systemImage: String?) -> some View {
         Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
+            let animation: Animation = tab == .idea || selectedTab == .idea
+                ? .spring(response: 0.72, dampingFraction: 0.86)
+                : .easeInOut(duration: 0.18)
+
+            withAnimation(animation) {
                 selectedTab = tab
             }
         } label: {
