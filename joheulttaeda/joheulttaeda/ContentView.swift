@@ -33,15 +33,14 @@ struct ContentView: View {
                         }
                     }
                         .frame(width: width, height: height)
-                        .transition(.opacity)
                 } else if selectedTab == .memory {
                     MemorySectionView {
-                        withAnimation(.easeInOut(duration: 0.18)) {
+                        withAnimation(.smooth(duration: 0.58, extraBounce: 0)) {
                             selectedTab = .home
                         }
                     }
                     .frame(width: width, height: height)
-                    .transition(.opacity)
+                    .transition(.move(edge: .top))
                 } else {
                     Clothesline()
                         .stroke(
@@ -53,7 +52,11 @@ struct ContentView: View {
                     HeaderView()
                         .frame(width: width, height: lineY)
 
-                    HangingMemoryCard()
+                    HangingMemoryCard {
+                        withAnimation(.smooth(duration: 0.62, extraBounce: 0)) {
+                            selectedTab = .memory
+                        }
+                    }
                         .frame(width: cardWidth, height: cardHeight)
                         .rotationEffect(.degrees(5.2))
                         .position(
@@ -68,7 +71,7 @@ struct ContentView: View {
                     IdeaStackView(
                         transitionNamespace: ideaTransitionNamespace,
                         onSwipeUp: {
-                            withAnimation(.spring(response: 0.72, dampingFraction: 0.86)) {
+                            withAnimation(.smooth(duration: 0.58, extraBounce: 0)) {
                                 selectedTab = .idea
                             }
                         }
@@ -113,6 +116,7 @@ private struct IdeaFeedView: View {
     @State private var ageFilter = "Age"
     @State private var seasonFilter = "Season"
     @State private var spotFilter = "Spot"
+    @State private var chromeIsVisible = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -145,6 +149,8 @@ private struct IdeaFeedView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, width * 0.115)
                         .padding(.top, 16)
+                        .opacity(chromeIsVisible ? 1 : 0)
+                        .offset(y: chromeIsVisible ? 0 : -5)
 
                         HStack(alignment: .top, spacing: columnSpacing) {
                             VStack(spacing: 24) {
@@ -210,13 +216,20 @@ private struct IdeaFeedView: View {
                     endPoint: .bottom
                 )
                 .frame(height: 112)
+                .opacity(chromeIsVisible ? 1 : 0)
                 .allowsHitTesting(false)
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(DesignColor.text)
                     .padding(.bottom, 58)
+                    .opacity(chromeIsVisible ? 1 : 0)
                     .accessibilityHidden(true)
+            }
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.32).delay(0.14)) {
+                chromeIsVisible = true
             }
         }
         .accessibilityElement(children: .contain)
@@ -741,11 +754,17 @@ private struct Clothesline: Shape {
 }
 
 private struct HangingMemoryCard: View {
+    let onSwipeDown: () -> Void
+
+    @State private var pullOffset: CGFloat = 0
+    @State private var isFinishingPull = false
+
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let inset = size.width * 0.075
             let photoHeight = size.height * 0.64
+            let pullProgress = min(1, max(0, pullOffset / 110))
 
             ZStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -774,10 +793,51 @@ private struct HangingMemoryCard: View {
                     .padding(.horizontal, 14)
                     .position(x: size.width / 2, y: size.height * 0.83)
             }
+            .scaleEffect(1 + (0.018 * pullProgress), anchor: .top)
+            .rotationEffect(.degrees(-3.4 * pullProgress), anchor: .top)
+            .offset(y: 42 * pullProgress)
+            .contentShape(Rectangle())
+            .gesture(downwardSwipeGesture)
         }
         .shadow(color: .black.opacity(0.035), radius: 1, y: 1)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("추억 사진 카드")
+        .accessibilityHint("아래로 쓸어내려 메모리 화면을 엽니다")
+        .accessibilityAction(named: "메모리 화면 열기", onSwipeDown)
+    }
+
+    private var downwardSwipeGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard !isFinishingPull else { return }
+                pullOffset = min(110, max(0, value.translation.height))
+            }
+            .onEnded { value in
+                guard !isFinishingPull else { return }
+
+                let movedDown = value.translation.height > 48
+                let projectedDown = value.predictedEndTranslation.height > 82
+
+                if movedDown || projectedDown {
+                    isFinishingPull = true
+
+                    let progress = min(1, max(0, pullOffset / 110))
+                    let finishDuration = 0.08 + ((1 - progress) * 0.12)
+
+                    withAnimation(
+                        .smooth(duration: finishDuration, extraBounce: 0),
+                        completionCriteria: .logicallyComplete
+                    ) {
+                        pullOffset = 110
+                    } completion: {
+                        onSwipeDown()
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                        pullOffset = 0
+                    }
+                }
+            }
     }
 }
 
@@ -811,7 +871,7 @@ private struct CheckerboardView: View {
 
     var body: some View {
         Canvas { context, size in
-            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.white))
+            var checkerPath = Path()
 
             let columns = Int(ceil(size.width / squareSize))
             let rows = Int(ceil(size.height / squareSize))
@@ -824,9 +884,12 @@ private struct CheckerboardView: View {
                         width: squareSize,
                         height: squareSize
                     )
-                    context.fill(Path(rect), with: .color(Color.black.opacity(0.055)))
+                    checkerPath.addRect(rect)
                 }
             }
+
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.white))
+            context.fill(checkerPath, with: .color(Color.black.opacity(0.055)))
         }
     }
 }
@@ -835,13 +898,15 @@ private struct IdeaStackView: View {
     let transitionNamespace: Namespace.ID
     let onSwipeUp: () -> Void
 
-    @GestureState private var swipeOffset: CGFloat = 0
+    @State private var swipeOffset: CGFloat = 0
+    @State private var isFinishingSwipe = false
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let centerX = size.width / 2
             let scale = min(1, size.width / 390)
+            let swipeProgress = min(1, max(0, -swipeOffset / 110))
 
             ZStack {
                 ZStack {
@@ -851,8 +916,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(-12))
+                        .rotationEffect(.degrees(-12 + (7 * swipeProgress)))
                         .position(x: centerX - 103 * scale, y: 83)
+                        .offset(x: -34 * swipeProgress, y: -46 * swipeProgress)
 
                     memo(width: 79, height: 125, square: 9)
                         .matchedGeometryEffect(
@@ -860,8 +926,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(-2))
+                        .rotationEffect(.degrees(-2 + (2 * swipeProgress)))
                         .position(x: centerX - 56 * scale, y: 52)
+                        .offset(x: 34 * swipeProgress, y: -43 * swipeProgress)
 
                     memo(width: 82, height: 124, square: 10)
                         .rotationEffect(.degrees(4))
@@ -881,8 +948,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(-8))
+                        .rotationEffect(.degrees(-8 + (5 * swipeProgress)))
                         .position(x: centerX - 77 * scale, y: 117)
+                        .offset(x: -22 * swipeProgress, y: -25 * swipeProgress)
 
                     folder(color: DesignColor.yellow, width: 246, height: 137)
                         .matchedGeometryEffect(
@@ -890,8 +958,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(2))
+                        .rotationEffect(.degrees(2 - (2 * swipeProgress)))
                         .position(x: centerX, y: 103)
+                        .offset(x: -14 * swipeProgress, y: -45 * swipeProgress)
 
                     memo(width: 72, height: 113, square: 9)
                         .rotationEffect(.degrees(-1))
@@ -903,8 +972,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(5))
+                        .rotationEffect(.degrees(5 - (4 * swipeProgress)))
                         .position(x: centerX + 91 * scale, y: 128)
+                        .offset(x: 24 * swipeProgress, y: -30 * swipeProgress)
 
                     memo(width: 156, height: 168, square: 12)
                         .matchedGeometryEffect(
@@ -912,8 +982,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(-5))
+                        .rotationEffect(.degrees(-5 + (3 * swipeProgress)))
                         .position(x: centerX - 102 * scale, y: 191)
+                        .offset(x: -22 * swipeProgress, y: -45 * swipeProgress)
 
                     memo(width: 150, height: 172, square: 13)
                         .matchedGeometryEffect(
@@ -921,8 +992,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(3))
+                        .rotationEffect(.degrees(3 - (2 * swipeProgress)))
                         .position(x: centerX - 2 * scale, y: 192)
+                        .offset(x: 14 * swipeProgress, y: -57 * swipeProgress)
 
                     memo(width: 145, height: 158, square: 12)
                         .matchedGeometryEffect(
@@ -930,8 +1002,9 @@ private struct IdeaStackView: View {
                             in: transitionNamespace,
                             isSource: true
                         )
-                        .rotationEffect(.degrees(5))
+                        .rotationEffect(.degrees(5 - (3 * swipeProgress)))
                         .position(x: centerX + 102 * scale, y: 196)
+                        .offset(x: 28 * swipeProgress, y: -39 * swipeProgress)
                 }
                 .frame(width: size.width, height: size.height)
                 .scaleEffect(0.62, anchor: .bottom)
@@ -954,8 +1027,10 @@ private struct IdeaStackView: View {
                 }
                 .foregroundStyle(DesignColor.text)
                 .position(x: centerX, y: size.height - 67)
+                .opacity(1 - (0.72 * swipeProgress))
             }
-            .offset(y: max(-30, min(0, swipeOffset * 0.26)))
+            .scaleEffect(1 + (0.025 * swipeProgress), anchor: .bottom)
+            .offset(y: max(-42, min(0, swipeOffset * 0.34)))
             .contentShape(Rectangle())
             .gesture(upwardSwipeGesture)
         }
@@ -967,17 +1042,34 @@ private struct IdeaStackView: View {
 
     private var upwardSwipeGesture: some Gesture {
         DragGesture(minimumDistance: 12)
-            .updating($swipeOffset) { value, state, _ in
-                if value.translation.height < 0 {
-                    state = value.translation.height
-                }
+            .onChanged { value in
+                guard !isFinishingSwipe else { return }
+                swipeOffset = max(-110, min(0, value.translation.height))
             }
             .onEnded { value in
+                guard !isFinishingSwipe else { return }
+
                 let movedUp = value.translation.height < -48
                 let projectedUp = value.predictedEndTranslation.height < -82
 
                 if movedUp || projectedUp {
-                    onSwipeUp()
+                    isFinishingSwipe = true
+
+                    let progress = min(1, max(0, -swipeOffset / 110))
+                    let finishDuration = 0.08 + ((1 - progress) * 0.12)
+
+                    withAnimation(
+                        .smooth(duration: finishDuration, extraBounce: 0),
+                        completionCriteria: .logicallyComplete
+                    ) {
+                        swipeOffset = -110
+                    } completion: {
+                        onSwipeUp()
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.88)) {
+                        swipeOffset = 0
+                    }
                 }
             }
     }
@@ -1070,9 +1162,15 @@ private struct BottomNavigation: View {
     @ViewBuilder
     private func tabButton(_ tab: HomeTab, title: String?, systemImage: String?) -> some View {
         Button {
-            let animation: Animation = tab == .idea || selectedTab == .idea
-                ? .spring(response: 0.72, dampingFraction: 0.86)
-                : .easeInOut(duration: 0.18)
+            let animation: Animation
+
+            if tab == .idea || selectedTab == .idea {
+                animation = .smooth(duration: 0.58, extraBounce: 0)
+            } else if tab == .memory || selectedTab == .memory {
+                animation = .smooth(duration: 0.58, extraBounce: 0)
+            } else {
+                animation = .easeInOut(duration: 0.18)
+            }
 
             withAnimation(animation) {
                 selectedTab = tab
