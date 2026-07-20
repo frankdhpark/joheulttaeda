@@ -237,7 +237,12 @@ private struct IdeaFeedView: View {
                         .transition(.scale(scale: 0.88, anchor: .trailing).combined(with: .opacity))
                         .zIndex(3)
 
-                    CameraLauncherButton()
+                    CameraLauncherButton(
+                        selectedPhotos: selectedPhotos
+                            .sorted { $0.photoSortOrder < $1.photoSortOrder }
+                            .compactMap(\.liveActivityDescriptor),
+                        contextTitle: "Idea"
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .padding(.trailing, 20)
                         .padding(.bottom, 70)
@@ -380,6 +385,36 @@ private enum IdeaTransitionElement: Hashable {
     case photoThree
     case photoFour
     case photoFive
+
+    var photoSortOrder: Int {
+        switch self {
+        case .photoOne: 0
+        case .photoTwo: 1
+        case .photoThree: 2
+        case .photoFour: 3
+        case .photoFive: 4
+        case .yellowFolder: 5
+        case .pinkFolder: 6
+        case .blueFolder: 7
+        }
+    }
+
+    var liveActivityDescriptor: IdeaPhotoThumbnailDescriptor? {
+        switch self {
+        case .photoOne:
+            IdeaPhotoThumbnailDescriptor(id: "feed-photo-1", squareSize: 8, showsTitle: false)
+        case .photoTwo:
+            IdeaPhotoThumbnailDescriptor(id: "feed-photo-2", squareSize: 14, showsTitle: false)
+        case .photoThree:
+            IdeaPhotoThumbnailDescriptor(id: "feed-photo-3", squareSize: 13, showsTitle: false)
+        case .photoFour:
+            IdeaPhotoThumbnailDescriptor(id: "feed-photo-4", squareSize: 13, showsTitle: false)
+        case .photoFive:
+            IdeaPhotoThumbnailDescriptor(id: "feed-photo-5", squareSize: 9, showsTitle: false)
+        case .yellowFolder, .pinkFolder, .blueFolder:
+            nil
+        }
+    }
 }
 
 private enum IdeaFolder: String, Identifiable {
@@ -568,7 +603,18 @@ private struct ExpandedFolderView: View {
                 }
 
                 if albumIsPresented && !selectedAlbumPhotos.isEmpty {
-                    CameraLauncherButton()
+                    CameraLauncherButton(
+                        selectedPhotos: IdeaAlbumPhoto.all
+                            .filter { selectedAlbumPhotos.contains($0.id) }
+                            .map {
+                                IdeaPhotoThumbnailDescriptor(
+                                    id: "album-photo-\($0.id)",
+                                    squareSize: $0.squareSize,
+                                    showsTitle: true
+                                )
+                            },
+                        contextTitle: folder.title.replacingOccurrences(of: "\n", with: " ")
+                    )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .padding(.trailing, 20)
                         .padding(.bottom, 22)
@@ -911,7 +957,35 @@ private struct CompactPhotoSelectionSummary: View {
     }
 }
 
+private struct IdeaPhotoThumbnailDescriptor: Identifiable {
+    let id: String
+    let squareSize: CGFloat
+    let showsTitle: Bool
+
+    @MainActor
+    func render() -> UIImage? {
+        let renderer = ImageRenderer(
+            content: thumbnailView
+                .frame(width: 96, height: 96)
+        )
+        renderer.scale = 1
+        return renderer.uiImage
+    }
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if showsTitle {
+            ExpandedPhotoCard(squareSize: squareSize)
+        } else {
+            FeedPhotoCard(squareSize: squareSize)
+        }
+    }
+}
+
 private struct CameraLauncherButton: View {
+    let selectedPhotos: [IdeaPhotoThumbnailDescriptor]
+    let contextTitle: String
+
     @State private var cameraIsPresented = false
     @State private var cameraAlertIsPresented = false
 
@@ -932,7 +1006,18 @@ private struct CameraLauncherButton: View {
         .accessibilityLabel("카메라 열기")
         .accessibilityHint("선택한 사진과 함께 사용할 새 사진을 촬영합니다")
         .fullScreenCover(isPresented: $cameraIsPresented) {
-            CameraCaptureView()
+            CameraCaptureView(
+                onCapture: {
+                    Task {
+                        await CameraLiveActivityManager.shared.finish()
+                    }
+                },
+                onCancel: {
+                    Task {
+                        await CameraLiveActivityManager.shared.cancel()
+                    }
+                }
+            )
                 .ignoresSafeArea()
         }
         .alert("카메라를 사용할 수 없습니다", isPresented: $cameraAlertIsPresented) {
@@ -950,11 +1035,11 @@ private struct CameraLauncherButton: View {
 
         switch AVCaptureDevice.authorizationStatus(for: .video) {
         case .authorized:
-            cameraIsPresented = true
+            presentCamera()
         case .notDetermined:
             Task {
                 if await AVCaptureDevice.requestAccess(for: .video) {
-                    cameraIsPresented = true
+                    presentCamera()
                 } else {
                     cameraAlertIsPresented = true
                 }
@@ -965,10 +1050,25 @@ private struct CameraLauncherButton: View {
             cameraAlertIsPresented = true
         }
     }
+
+    private func presentCamera() {
+        Task {
+            let selectedImages = selectedPhotos.compactMap { $0.render() }
+            await CameraLiveActivityManager.shared.start(
+                selectedImages: selectedImages,
+                selectedPhotoCount: selectedPhotos.count,
+                contextTitle: contextTitle
+            )
+            cameraIsPresented = true
+        }
+    }
 }
 
 private struct CameraCaptureView: UIViewControllerRepresentable {
     @Environment(\.dismiss) private var dismiss
+
+    let onCapture: () -> Void
+    let onCancel: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -993,12 +1093,14 @@ private struct CameraCaptureView: UIViewControllerRepresentable {
 
         func imagePickerController(
             _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]
+            didFinishPickingMediaWithInfo _: [UIImagePickerController.InfoKey: Any]
         ) {
+            parent.onCapture()
             parent.dismiss()
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onCancel()
             parent.dismiss()
         }
     }
