@@ -1,10 +1,41 @@
 import ActivityKit
+import OSLog
 import UIKit
+
+enum CameraLiveActivityStartError: LocalizedError {
+    case activitiesDisabled
+    case noSelectedPhotos
+    case sharedStorageUnavailable
+    case thumbnailCreationFailed
+    case activityDidNotBecomeActive
+    case requestFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .activitiesDisabled:
+            "설정에서 joheulttaeda의 Live Activity를 활성화한 후 다시 시도해주세요."
+        case .noSelectedPhotos:
+            "Dynamic Island에 표시할 사진을 다시 선택해주세요."
+        case .sharedStorageUnavailable:
+            "선택 사진을 Live Activity와 공유할 수 없습니다. App Group 설정을 확인해주세요."
+        case .thumbnailCreationFailed:
+            "선택 사진의 Live Activity 미리 보기를 만들지 못했습니다. 다시 시도해주세요."
+        case .activityDidNotBecomeActive:
+            "Live Activity가 활성 상태로 전환되지 않았습니다. 기기의 Live Activity 설정을 확인해주세요."
+        case let .requestFailed(message):
+            "Live Activity를 시작하지 못했습니다. \(message)"
+        }
+    }
+}
 
 @MainActor
 final class CameraLiveActivityManager {
     static let shared = CameraLiveActivityManager()
 
+    private let logger = Logger(
+        subsystem: "com.folitune.joheulttaeda",
+        category: "CameraLiveActivity"
+    )
     private var currentActivity: Activity<CameraActivityAttributes>?
     private var dismissalTask: Task<Void, Never>?
     private var currentThumbnailIDs: [String] = []
@@ -15,16 +46,37 @@ final class CameraLiveActivityManager {
         selectedImages: [UIImage],
         selectedPhotoCount: Int,
         contextTitle: String
-    ) async {
+    ) async throws {
         dismissalTask?.cancel()
         await endOutstandingActivities()
         removeStoredThumbnails()
 
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            throw CameraLiveActivityStartError.activitiesDisabled
+        }
+
+        guard selectedPhotoCount > 0 else {
+            throw CameraLiveActivityStartError.noSelectedPhotos
+        }
+
+        guard CameraActivitySharedStorage.thumbnailDirectoryURL() != nil else {
+            throw CameraLiveActivityStartError.sharedStorageUnavailable
+        }
+
+        let thumbnailLimit = min(selectedPhotoCount, 8)
+        guard selectedImages.count >= thumbnailLimit else {
+            throw CameraLiveActivityStartError.noSelectedPhotos
+        }
 
         let thumbnailIDs = selectedImages
-            .prefix(8)
+            .prefix(thumbnailLimit)
             .compactMap(storeThumbnail)
+
+        guard thumbnailIDs.count == thumbnailLimit else {
+            removeThumbnails(ids: thumbnailIDs)
+            throw CameraLiveActivityStartError.thumbnailCreationFailed
+        }
+
         currentThumbnailIDs = thumbnailIDs
 
         let attributes = CameraActivityAttributes(
@@ -38,19 +90,38 @@ final class CameraLiveActivityManager {
             completedAt: nil
         )
 
+        let activity: Activity<CameraActivityAttributes>
+
         do {
-            currentActivity = try Activity.request(
+            activity = try Activity.request(
                 attributes: attributes,
                 content: ActivityContent(
                     state: state,
-                    staleDate: Date.now.addingTimeInterval(120)
+                    staleDate: Date.now.addingTimeInterval(120),
+                    relevanceScore: 1
                 ),
                 pushType: nil
             )
         } catch {
+            removeCurrentThumbnails()
+            logger.error("Live Activity request failed: \(error.localizedDescription, privacy: .public)")
+            throw CameraLiveActivityStartError.requestFailed(error.localizedDescription)
+        }
+
+        currentActivity = activity
+        await Task.yield()
+
+        guard activity.activityState == .active else {
+            logger.error("Live Activity did not become active. State: \(String(describing: activity.activityState), privacy: .public)")
+            await activity.end(activity.content, dismissalPolicy: .immediate)
             currentActivity = nil
             removeCurrentThumbnails()
+            throw CameraLiveActivityStartError.activityDidNotBecomeActive
         }
+
+        logger.info(
+            "Live Activity started. ID: \(activity.id, privacy: .public), thumbnails: \(thumbnailIDs.count, privacy: .public)"
+        )
     }
 
     func finish() async {
@@ -64,7 +135,8 @@ final class CameraLiveActivityManager {
         )
         let finalContent = ActivityContent(
             state: finalState,
-            staleDate: Date.now.addingTimeInterval(12)
+            staleDate: Date.now.addingTimeInterval(12),
+            relevanceScore: 1
         )
 
         await currentActivity.update(
@@ -134,11 +206,16 @@ final class CameraLiveActivityManager {
                 withIntermediateDirectories: true
             )
 
-            let thumbnail = squareThumbnail(from: image, sideLength: 96)
-            guard let data = thumbnail.jpegData(compressionQuality: 0.76) else { return nil }
+            let thumbnail = squareThumbnail(from: image, sideLength: 192)
+            guard let data = thumbnail.jpegData(compressionQuality: 0.84) else { return nil }
 
             let id = "idea-selection-\(UUID().uuidString).jpg"
-            try data.write(to: directoryURL.appendingPathComponent(id), options: .atomic)
+            let fileURL = directoryURL.appendingPathComponent(id)
+            try data.write(to: fileURL, options: .atomic)
+            try FileManager.default.setAttributes(
+                [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+                ofItemAtPath: fileURL.path
+            )
             return id
         } catch {
             return nil
@@ -157,8 +234,14 @@ final class CameraLiveActivityManager {
             y: (sideLength - scaledSize.height) / 2
         )
 
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        format.preferredRange = .standard
+
         return UIGraphicsImageRenderer(
-            size: CGSize(width: sideLength, height: sideLength)
+            size: CGSize(width: sideLength, height: sideLength),
+            format: format
         ).image { _ in
             image.draw(in: CGRect(origin: origin, size: scaledSize))
         }

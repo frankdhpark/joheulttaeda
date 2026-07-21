@@ -7,6 +7,8 @@
 
 import SwiftUI
 import AVFoundation
+import Combine
+import ImageIO
 import UIKit
 
 struct ContentView: View {
@@ -119,7 +121,7 @@ private struct IdeaFeedView: View {
     @State private var seasonFilter = "Season"
     @State private var spotFilter = "Spot"
     @State private var chromeIsVisible = false
-    @State private var selectedPhotos: Set<IdeaTransitionElement> = []
+    @State private var selectedPhotos: Set<String> = []
 
     var body: some View {
         GeometryReader { proxy in
@@ -157,52 +159,42 @@ private struct IdeaFeedView: View {
 
                         HStack(alignment: .top, spacing: columnSpacing) {
                             VStack(spacing: 24) {
-                                folderButton(.amusementPark, width: cardWidth)
+                                folderButton(.outing, width: cardWidth)
 
-                                folderButton(.cherryBlossom, width: cardWidth)
+                                folderButton(.nap, width: cardWidth)
 
-                                transitionPhoto(
-                                    .photoOne,
-                                    squareSize: 8,
+                                photoButton(
+                                    IdeaPhotoLibrary.instrument,
+                                    transitionElement: .photoOne,
                                     width: cardWidth,
-                                    height: cardWidth * 0.82
+                                    height: cardWidth
                                 )
 
-                                transitionPhoto(
-                                    .photoFour,
-                                    squareSize: 13,
-                                    width: cardWidth,
-                                    height: cardWidth * 1.56
-                                )
+                                folderButton(.swimming, width: cardWidth)
 
-                                folderButton(.warmAfternoon, width: cardWidth)
+                                photoButton(
+                                    IdeaPhotoLibrary.event,
+                                    transitionElement: .photoTwo,
+                                    width: cardWidth,
+                                    height: cardWidth * 1.58
+                                )
                             }
 
                             VStack(spacing: 24) {
-                                transitionPhoto(
-                                    .photoTwo,
-                                    squareSize: 14,
+                                folderButton(.food, width: cardWidth)
+
+                                folderButton(.walk, width: cardWidth)
+
+                                photoButton(
+                                    IdeaPhotoLibrary.exercise,
+                                    transitionElement: .photoThree,
                                     width: cardWidth,
-                                    height: cardWidth * 1.55
+                                    height: cardWidth * 1.34
                                 )
 
-                                folderButton(.rainyDay, width: cardWidth)
+                                folderButton(.costume, width: cardWidth)
 
-                                transitionPhoto(
-                                    .photoThree,
-                                    squareSize: 13,
-                                    width: cardWidth,
-                                    height: cardWidth * 1.60
-                                )
-
-                                transitionPhoto(
-                                    .photoFive,
-                                    squareSize: 9,
-                                    width: cardWidth,
-                                    height: cardWidth * 0.86
-                                )
-
-                                folderButton(.littleMoments, width: cardWidth)
+                                folderButton(.fashion, width: cardWidth)
                             }
                             .padding(.top, 25)
                         }
@@ -238,9 +230,9 @@ private struct IdeaFeedView: View {
                         .zIndex(3)
 
                     CameraLauncherButton(
-                        selectedPhotos: selectedPhotos
-                            .sorted { $0.photoSortOrder < $1.photoSortOrder }
-                            .compactMap(\.liveActivityDescriptor),
+                        selectedPhotos: IdeaPhotoLibrary.singlePhotos
+                            .filter { selectedPhotos.contains($0.id) }
+                            .map { IdeaPhotoThumbnailDescriptor(photo: $0) },
                         contextTitle: "Idea"
                     )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
@@ -309,7 +301,7 @@ private struct IdeaFeedView: View {
     @ViewBuilder
     private func folderLabel(_ folder: IdeaFolder, width: CGFloat) -> some View {
         if let transitionElement = folder.transitionElement {
-            FeedFolderCard(color: folder.color, title: folder.title)
+            FeedFolderCard(color: folder.color, title: folder.title, photos: folder.photos)
                 .frame(width: width, height: 126)
                 .matchedGeometryEffect(
                     id: transitionElement,
@@ -317,32 +309,32 @@ private struct IdeaFeedView: View {
                     isSource: false
                 )
         } else {
-            FeedFolderCard(color: folder.color, title: folder.title)
+            FeedFolderCard(color: folder.color, title: folder.title, photos: folder.photos)
                 .frame(width: width, height: 126)
         }
     }
 
-    private func transitionPhoto(
-        _ element: IdeaTransitionElement,
-        squareSize: CGFloat,
+    private func photoButton(
+        _ photo: IdeaPhoto,
+        transitionElement: IdeaTransitionElement,
         width: CGFloat,
         height: CGFloat
     ) -> some View {
-        let isSelected = selectedPhotos.contains(element)
+        let isSelected = selectedPhotos.contains(photo.id)
 
         return Button {
             withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
                 if isSelected {
-                    selectedPhotos.remove(element)
+                    selectedPhotos.remove(photo.id)
                 } else {
-                    selectedPhotos.insert(element)
+                    selectedPhotos.insert(photo.id)
                 }
             }
         } label: {
-            FeedPhotoCard(squareSize: squareSize)
+            IdeaPhotoCard(photo: photo, cornerRadius: 8)
                 .frame(width: width, height: height)
                 .matchedGeometryEffect(
-                    id: element,
+                    id: transitionElement,
                     in: transitionNamespace,
                     isSource: false
                 )
@@ -370,7 +362,7 @@ private struct IdeaFeedView: View {
                 .scaleEffect(isSelected ? 0.975 : 1)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("아이디어 사진")
+        .accessibilityLabel(photo.title)
         .accessibilityHint(isSelected ? "탭하여 선택을 해제합니다" : "탭하여 사진을 선택합니다")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
@@ -385,83 +377,170 @@ private enum IdeaTransitionElement: Hashable {
     case photoThree
     case photoFour
     case photoFive
+}
 
-    var photoSortOrder: Int {
-        switch self {
-        case .photoOne: 0
-        case .photoTwo: 1
-        case .photoThree: 2
-        case .photoFour: 3
-        case .photoFive: 4
-        case .yellowFolder: 5
-        case .pinkFolder: 6
-        case .blueFolder: 7
-        }
+private struct IdeaPhoto: Identifiable, Hashable {
+    let id: String
+    let fileName: String
+    let title: String
+
+    var image: UIImage? {
+        IdeaPhotoImageStore.shared.image(named: fileName)
     }
 
-    var liveActivityDescriptor: IdeaPhotoThumbnailDescriptor? {
-        switch self {
-        case .photoOne:
-            IdeaPhotoThumbnailDescriptor(id: "feed-photo-1", squareSize: 8, showsTitle: false)
-        case .photoTwo:
-            IdeaPhotoThumbnailDescriptor(id: "feed-photo-2", squareSize: 14, showsTitle: false)
-        case .photoThree:
-            IdeaPhotoThumbnailDescriptor(id: "feed-photo-3", squareSize: 13, showsTitle: false)
-        case .photoFour:
-            IdeaPhotoThumbnailDescriptor(id: "feed-photo-4", squareSize: 13, showsTitle: false)
-        case .photoFive:
-            IdeaPhotoThumbnailDescriptor(id: "feed-photo-5", squareSize: 9, showsTitle: false)
-        case .yellowFolder, .pinkFolder, .blueFolder:
-            nil
+    var cardAspectRatio: CGFloat {
+        guard let image, image.size.width > 0 else { return 1.2 }
+        return min(1.58, max(0.88, image.size.height / image.size.width))
+    }
+}
+
+private final class IdeaPhotoImageStore {
+    static let shared = IdeaPhotoImageStore()
+
+    private let cache = NSCache<NSString, UIImage>()
+
+    func image(named fileName: String) -> UIImage? {
+        if let cached = cache.object(forKey: fileName as NSString) {
+            return cached
+        }
+
+        let resourceURL = Bundle.main.url(
+            forResource: fileName,
+            withExtension: nil,
+            subdirectory: "IdeaPhotos"
+        ) ?? Bundle.main.url(forResource: fileName, withExtension: nil)
+
+        guard
+            let resourceURL,
+            let imageSource = CGImageSourceCreateWithURL(resourceURL as CFURL, nil),
+            let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+                imageSource,
+                0,
+                [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                    kCGImageSourceThumbnailMaxPixelSize: 1_600
+                ] as CFDictionary
+            )
+        else {
+            return nil
+        }
+
+        let image = UIImage(cgImage: thumbnail)
+        cache.setObject(image, forKey: fileName as NSString)
+        return image
+    }
+}
+
+private enum IdeaPhotoLibrary {
+    static let outing = makePhotos(prefix: "outing", count: 3, title: "나들이")
+    static let nap = makePhotos(
+        prefix: "nap",
+        count: 2,
+        title: "낮잠",
+        extensions: [2: "jpeg"]
+    )
+    static let food = makePhotos(prefix: "food", count: 6, title: "먹방")
+    static let walk = makePhotos(
+        prefix: "walk",
+        count: 5,
+        title: "산책",
+        extensions: [1: "jpeg", 3: "png"]
+    )
+    static let swimming = makePhotos(prefix: "swimming", count: 6, title: "수영")
+    static let instrument = makePhotos(prefix: "instrument", count: 1, title: "악기")[0]
+    static let event = makePhotos(prefix: "event", count: 1, title: "이벤트")[0]
+    static let exercise = makePhotos(prefix: "exercise", count: 1, title: "체육")[0]
+    static let costume = makePhotos(
+        prefix: "costume",
+        count: 7,
+        title: "코스프레",
+        extensions: [1: "jpeg", 7: "png"]
+    )
+    static let fashion = makePhotos(prefix: "fashion", count: 5, title: "패션")
+
+    static let singlePhotos = [instrument, event, exercise]
+
+    static let allPhotos = outing
+        + nap
+        + food
+        + walk
+        + swimming
+        + singlePhotos
+        + costume
+        + fashion
+
+    private static func makePhotos(
+        prefix: String,
+        count: Int,
+        title: String,
+        extensions: [Int: String] = [:]
+    ) -> [IdeaPhoto] {
+        (1...count).map { index in
+            let fileExtension = extensions[index, default: "jpg"]
+            let fileName = "\(prefix)_\(index).\(fileExtension)"
+
+            return IdeaPhoto(
+                id: fileName,
+                fileName: fileName,
+                title: count == 1 ? title : "\(title) \(index)"
+            )
         }
     }
 }
 
 private enum IdeaFolder: String, Identifiable {
-    case amusementPark
-    case cherryBlossom
-    case rainyDay
-    case warmAfternoon
-    case littleMoments
+    case outing
+    case nap
+    case food
+    case walk
+    case swimming
+    case costume
+    case fashion
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .amusementPark:
-            "Our Baby's First\nAmusement Park Trip"
-        case .cherryBlossom:
-            "Cherry Blossom\nOuting"
-        case .rainyDay:
-            "A Rainy Day Out\nwith Our Baby"
-        case .warmAfternoon:
-            "A Warm Afternoon\nTogether"
-        case .littleMoments:
-            "Little Moments\nWorth Keeping"
+        case .outing: "나들이"
+        case .nap: "낮잠"
+        case .food: "먹방"
+        case .walk: "산책"
+        case .swimming: "수영"
+        case .costume: "코스프레"
+        case .fashion: "패션"
         }
     }
 
     var color: Color {
         switch self {
-        case .amusementPark, .warmAfternoon:
+        case .outing, .walk, .fashion:
             DesignColor.yellow
-        case .cherryBlossom, .littleMoments:
+        case .nap, .costume:
             DesignColor.pink
-        case .rainyDay:
+        case .food, .swimming:
             DesignColor.blue
+        }
+    }
+
+    var photos: [IdeaPhoto] {
+        switch self {
+        case .outing: IdeaPhotoLibrary.outing
+        case .nap: IdeaPhotoLibrary.nap
+        case .food: IdeaPhotoLibrary.food
+        case .walk: IdeaPhotoLibrary.walk
+        case .swimming: IdeaPhotoLibrary.swimming
+        case .costume: IdeaPhotoLibrary.costume
+        case .fashion: IdeaPhotoLibrary.fashion
         }
     }
 
     var transitionElement: IdeaTransitionElement? {
         switch self {
-        case .amusementPark:
-            .yellowFolder
-        case .cherryBlossom:
-            .pinkFolder
-        case .rainyDay:
-            .blueFolder
-        case .warmAfternoon, .littleMoments:
-            nil
+        case .outing: .yellowFolder
+        case .nap: .pinkFolder
+        case .food: .blueFolder
+        case .walk, .swimming, .costume, .fashion: nil
         }
     }
 }
@@ -481,6 +560,7 @@ private struct ExpandedFolderView: View {
         GeometryReader { proxy in
             let size = proxy.size
             let photoWidth = min(166, size.width * 0.40)
+            let albumPhotos = folder.albumPhotos
 
             ZStack {
                 DesignColor.background
@@ -489,7 +569,7 @@ private struct ExpandedFolderView: View {
                 if albumIsPresented {
                     IdeaFolderAlbumView(
                         folder: folder,
-                        photos: IdeaAlbumPhoto.all,
+                        photos: albumPhotos,
                         transitionNamespace: albumTransitionNamespace,
                         selectedPhotos: $selectedAlbumPhotos,
                         onBack: closeAlbum
@@ -506,85 +586,21 @@ private struct ExpandedFolderView: View {
                         backgroundFolder(color: DesignColor.yellow, width: photoWidth * 1.10, height: 145)
                             .position(x: size.width * 0.34, y: size.height * 0.76)
 
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[0],
-                            width: photoWidth,
-                            height: photoWidth * 1.50,
-                            angle: 4,
-                            x: size.width * 0.36,
-                            y: size.height * 0.26,
-                            canvasHeight: size.height
-                        )
+                        ForEach(albumPhotos) { photo in
+                            let placement = IdeaAlbumPreviewPlacement.all[
+                                photo.id % IdeaAlbumPreviewPlacement.all.count
+                            ]
 
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[1],
-                            width: photoWidth,
-                            height: photoWidth * 1.47,
-                            angle: -4,
-                            x: size.width * 0.68,
-                            y: size.height * 0.27,
-                            canvasHeight: size.height
-                        )
-
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[2],
-                            width: photoWidth * 0.98,
-                            height: photoWidth * 0.95,
-                            angle: 3,
-                            x: size.width * 0.36,
-                            y: size.height * 0.39,
-                            canvasHeight: size.height
-                        )
-
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[3],
-                            width: photoWidth * 0.98,
-                            height: photoWidth * 0.98,
-                            angle: -7,
-                            x: size.width * 0.70,
-                            y: size.height * 0.43,
-                            canvasHeight: size.height
-                        )
-
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[4],
-                            width: photoWidth * 0.96,
-                            height: photoWidth * 1.47,
-                            angle: -12,
-                            x: size.width * 0.35,
-                            y: size.height * 0.58,
-                            canvasHeight: size.height
-                        )
-
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[5],
-                            width: photoWidth * 0.96,
-                            height: photoWidth * 1.45,
-                            angle: 6,
-                            x: size.width * 0.69,
-                            y: size.height * 0.61,
-                            canvasHeight: size.height
-                        )
-
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[6],
-                            width: photoWidth * 0.94,
-                            height: photoWidth * 1.03,
-                            angle: -3,
-                            x: size.width * 0.35,
-                            y: size.height * 0.79,
-                            canvasHeight: size.height
-                        )
-
-                        expandedPhoto(
-                            IdeaAlbumPhoto.all[7],
-                            width: photoWidth * 0.92,
-                            height: photoWidth * 1.02,
-                            angle: 17,
-                            x: size.width * 0.68,
-                            y: size.height * 0.80,
-                            canvasHeight: size.height
-                        )
+                            expandedPhoto(
+                                photo,
+                                width: photoWidth * placement.widthScale,
+                                height: photoWidth * placement.heightScale,
+                                angle: placement.angle,
+                                x: size.width * placement.x,
+                                y: size.height * placement.y,
+                                canvasHeight: size.height
+                            )
+                        }
 
                         Button {
                             onDismiss()
@@ -604,13 +620,11 @@ private struct ExpandedFolderView: View {
 
                 if albumIsPresented && !selectedAlbumPhotos.isEmpty {
                     CameraLauncherButton(
-                        selectedPhotos: IdeaAlbumPhoto.all
+                        selectedPhotos: albumPhotos
                             .filter { selectedAlbumPhotos.contains($0.id) }
                             .map {
                                 IdeaPhotoThumbnailDescriptor(
-                                    id: "album-photo-\($0.id)",
-                                    squareSize: $0.squareSize,
-                                    showsTitle: true
+                                    photo: $0.photo
                                 )
                             },
                         contextTitle: folder.title.replacingOccurrences(of: "\n", with: " ")
@@ -646,7 +660,7 @@ private struct ExpandedFolderView: View {
     ) -> some View {
         let liftMultiplier = 0.22 + (CGFloat(photo.id) * 0.012)
 
-        return ExpandedPhotoCard(squareSize: photo.squareSize)
+        return IdeaPhotoCard(photo: photo.photo, cornerRadius: 9)
             .frame(width: width, height: height)
             .matchedGeometryEffect(
                 id: photo.id,
@@ -741,18 +755,35 @@ private struct ExpandedFolderView: View {
 
 private struct IdeaAlbumPhoto: Identifiable {
     let id: Int
-    let squareSize: CGFloat
-    let albumAspectRatio: CGFloat
+    let photo: IdeaPhoto
 
-    static let all: [IdeaAlbumPhoto] = [
-        IdeaAlbumPhoto(id: 0, squareSize: 13, albumAspectRatio: 1.34),
-        IdeaAlbumPhoto(id: 1, squareSize: 13, albumAspectRatio: 1.02),
-        IdeaAlbumPhoto(id: 2, squareSize: 9, albumAspectRatio: 0.88),
-        IdeaAlbumPhoto(id: 3, squareSize: 10, albumAspectRatio: 1.26),
-        IdeaAlbumPhoto(id: 4, squareSize: 15, albumAspectRatio: 1.48),
-        IdeaAlbumPhoto(id: 5, squareSize: 14, albumAspectRatio: 1.16),
-        IdeaAlbumPhoto(id: 6, squareSize: 10, albumAspectRatio: 0.96),
-        IdeaAlbumPhoto(id: 7, squareSize: 9, albumAspectRatio: 1.32)
+    var albumAspectRatio: CGFloat { photo.cardAspectRatio }
+}
+
+private extension IdeaFolder {
+    var albumPhotos: [IdeaAlbumPhoto] {
+        photos.enumerated().map { index, photo in
+            IdeaAlbumPhoto(id: index, photo: photo)
+        }
+    }
+}
+
+private struct IdeaAlbumPreviewPlacement {
+    let widthScale: CGFloat
+    let heightScale: CGFloat
+    let angle: Double
+    let x: CGFloat
+    let y: CGFloat
+
+    static let all = [
+        IdeaAlbumPreviewPlacement(widthScale: 1.00, heightScale: 1.50, angle: 4, x: 0.36, y: 0.26),
+        IdeaAlbumPreviewPlacement(widthScale: 1.00, heightScale: 1.47, angle: -4, x: 0.68, y: 0.27),
+        IdeaAlbumPreviewPlacement(widthScale: 0.98, heightScale: 0.95, angle: 3, x: 0.36, y: 0.39),
+        IdeaAlbumPreviewPlacement(widthScale: 0.98, heightScale: 0.98, angle: -7, x: 0.70, y: 0.43),
+        IdeaAlbumPreviewPlacement(widthScale: 0.96, heightScale: 1.47, angle: -12, x: 0.35, y: 0.58),
+        IdeaAlbumPreviewPlacement(widthScale: 0.96, heightScale: 1.45, angle: 6, x: 0.69, y: 0.61),
+        IdeaAlbumPreviewPlacement(widthScale: 0.94, heightScale: 1.03, angle: -3, x: 0.35, y: 0.79),
+        IdeaAlbumPreviewPlacement(widthScale: 0.92, heightScale: 1.02, angle: 17, x: 0.68, y: 0.80)
     ]
 }
 
@@ -853,7 +884,7 @@ private struct IdeaFolderAlbumView: View {
                     Button {
                         toggleSelection(photo.id)
                     } label: {
-                        ExpandedPhotoCard(squareSize: photo.squareSize)
+                        IdeaPhotoCard(photo: photo.photo, cornerRadius: 9)
                             .frame(width: width, height: width * photo.albumAspectRatio)
                             .matchedGeometryEffect(
                                 id: photo.id,
@@ -876,11 +907,11 @@ private struct IdeaFolderAlbumView: View {
                             .scaleEffect(isSelected ? 0.975 : 1)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Moment \(photo.id + 1)")
+                    .accessibilityLabel(photo.photo.title)
                     .accessibilityHint(isSelected ? "탭하여 선택을 해제합니다" : "탭하여 사진을 선택합니다")
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
 
-                    Text("Moment \(photo.id + 1)")
+                    Text(photo.photo.title)
                         .font(.system(size: 11, weight: .bold, design: .rounded))
                         .foregroundStyle(DesignColor.text)
                         .opacity(chromeIsVisible ? 1 : 0)
@@ -958,36 +989,60 @@ private struct CompactPhotoSelectionSummary: View {
 }
 
 private struct IdeaPhotoThumbnailDescriptor: Identifiable {
-    let id: String
-    let squareSize: CGFloat
-    let showsTitle: Bool
+    let photo: IdeaPhoto
+
+    var id: String { photo.id }
 
     @MainActor
     func render() -> UIImage? {
-        let renderer = ImageRenderer(
-            content: thumbnailView
-                .frame(width: 96, height: 96)
-        )
-        renderer.scale = 1
-        return renderer.uiImage
+        photo.image
     }
+}
 
-    @ViewBuilder
-    private var thumbnailView: some View {
-        if showsTitle {
-            ExpandedPhotoCard(squareSize: squareSize)
-        } else {
-            FeedPhotoCard(squareSize: squareSize)
+private enum CameraLaunchAlert: Identifiable {
+    case cameraUnavailable
+    case liveActivityUnavailable(String)
+
+    var id: String {
+        switch self {
+        case .cameraUnavailable:
+            "cameraUnavailable"
+        case .liveActivityUnavailable:
+            "liveActivityUnavailable"
         }
     }
+
+    var title: String {
+        switch self {
+        case .cameraUnavailable:
+            "카메라를 사용할 수 없습니다"
+        case .liveActivityUnavailable:
+            "Live Activity를 시작할 수 없습니다"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .cameraUnavailable:
+            "기기에 카메라가 있는지 확인하고 설정에서 카메라 접근 권한을 허용해주세요."
+        case let .liveActivityUnavailable(message):
+            message
+        }
+    }
+}
+
+private struct CameraPresentation: Identifiable {
+    let id = UUID()
+    let referenceImages: [UIImage]
+    let selectedPhotoCount: Int
 }
 
 private struct CameraLauncherButton: View {
     let selectedPhotos: [IdeaPhotoThumbnailDescriptor]
     let contextTitle: String
 
-    @State private var cameraIsPresented = false
-    @State private var cameraAlertIsPresented = false
+    @State private var cameraPresentation: CameraPresentation?
+    @State private var launchAlert: CameraLaunchAlert?
 
     var body: some View {
         Button(action: openCamera) {
@@ -1005,8 +1060,10 @@ private struct CameraLauncherButton: View {
         .buttonStyle(.plain)
         .accessibilityLabel("카메라 열기")
         .accessibilityHint("선택한 사진과 함께 사용할 새 사진을 촬영합니다")
-        .fullScreenCover(isPresented: $cameraIsPresented) {
+        .fullScreenCover(item: $cameraPresentation) { presentation in
             CameraCaptureView(
+                referenceImages: presentation.referenceImages,
+                selectedPhotoCount: presentation.selectedPhotoCount,
                 onCapture: {
                     Task {
                         await CameraLiveActivityManager.shared.finish()
@@ -1018,18 +1075,19 @@ private struct CameraLauncherButton: View {
                     }
                 }
             )
-                .ignoresSafeArea()
         }
-        .alert("카메라를 사용할 수 없습니다", isPresented: $cameraAlertIsPresented) {
-            Button("확인", role: .cancel) {}
-        } message: {
-            Text("기기에 카메라가 있는지 확인하고 설정에서 카메라 접근 권한을 허용해주세요.")
+        .alert(item: $launchAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .cancel(Text("확인"))
+            )
         }
     }
 
     private func openCamera() {
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            cameraAlertIsPresented = true
+        guard AVCaptureDevice.default(for: .video) != nil else {
+            launchAlert = .cameraUnavailable
             return
         }
 
@@ -1041,67 +1099,467 @@ private struct CameraLauncherButton: View {
                 if await AVCaptureDevice.requestAccess(for: .video) {
                     presentCamera()
                 } else {
-                    cameraAlertIsPresented = true
+                    launchAlert = .cameraUnavailable
                 }
             }
         case .denied, .restricted:
-            cameraAlertIsPresented = true
+            launchAlert = .cameraUnavailable
         @unknown default:
-            cameraAlertIsPresented = true
+            launchAlert = .cameraUnavailable
         }
     }
 
     private func presentCamera() {
         Task {
             let selectedImages = selectedPhotos.compactMap { $0.render() }
-            await CameraLiveActivityManager.shared.start(
-                selectedImages: selectedImages,
-                selectedPhotoCount: selectedPhotos.count,
-                contextTitle: contextTitle
-            )
-            cameraIsPresented = true
+
+            do {
+                try await CameraLiveActivityManager.shared.start(
+                    selectedImages: selectedImages,
+                    selectedPhotoCount: selectedPhotos.count,
+                    contextTitle: contextTitle
+                )
+
+                // Give the system enough time to render the compact Dynamic Island
+                // presentation before the full-screen camera interface appears.
+                try? await Task.sleep(for: .milliseconds(650))
+                cameraPresentation = CameraPresentation(
+                    referenceImages: selectedImages,
+                    selectedPhotoCount: selectedPhotos.count
+                )
+            } catch {
+                launchAlert = .liveActivityUnavailable(error.localizedDescription)
+            }
         }
     }
 }
 
-private struct CameraCaptureView: UIViewControllerRepresentable {
-    @Environment(\.dismiss) private var dismiss
+@MainActor
+private final class CameraSessionController: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
+    let session = AVCaptureSession()
 
+    @Published private(set) var isReady = false
+    @Published private(set) var isCapturing = false
+    @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
+    @Published var errorMessage: String?
+
+    var onPhotoCaptured: (() -> Void)?
+
+    private let photoOutput = AVCapturePhotoOutput()
+    private var videoInput: AVCaptureDeviceInput?
+    private var isConfigured = false
+
+    func start() {
+        if !isConfigured {
+            configureSession()
+        }
+
+        guard isConfigured, !session.isRunning else { return }
+        let session = session
+        Task.detached(priority: .userInitiated) {
+            session.startRunning()
+        }
+    }
+
+    func stop() {
+        guard session.isRunning else { return }
+        let session = session
+        Task.detached(priority: .utility) {
+            session.stopRunning()
+        }
+    }
+
+    func capturePhoto() {
+        guard isReady, !isCapturing else { return }
+
+        isCapturing = true
+        let settings = AVCapturePhotoSettings()
+        settings.photoQualityPrioritization = .balanced
+        photoOutput.capturePhoto(with: settings, delegate: self)
+    }
+
+    func switchCamera() {
+        guard !isCapturing, let currentInput = videoInput else { return }
+
+        let nextPosition: AVCaptureDevice.Position = cameraPosition == .back ? .front : .back
+        guard
+            let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: nextPosition),
+            let nextInput = try? AVCaptureDeviceInput(device: device)
+        else {
+            errorMessage = "전환할 카메라를 찾을 수 없습니다."
+            return
+        }
+
+        session.beginConfiguration()
+        session.removeInput(currentInput)
+
+        if session.canAddInput(nextInput) {
+            session.addInput(nextInput)
+            videoInput = nextInput
+            cameraPosition = nextPosition
+        } else {
+            session.addInput(currentInput)
+            errorMessage = "카메라를 전환할 수 없습니다."
+        }
+
+        session.commitConfiguration()
+    }
+
+    nonisolated func photoOutput(
+        _ output: AVCapturePhotoOutput,
+        didFinishProcessingPhoto photo: AVCapturePhoto,
+        error: Error?
+    ) {
+        let capturedSuccessfully = error == nil && photo.fileDataRepresentation() != nil
+        let errorDescription = error?.localizedDescription
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.isCapturing = false
+
+            if capturedSuccessfully {
+                self.onPhotoCaptured?()
+            } else {
+                self.errorMessage = errorDescription ?? "사진을 촬영하지 못했습니다. 다시 시도해주세요."
+            }
+        }
+    }
+
+    private func configureSession() {
+        session.beginConfiguration()
+        session.sessionPreset = .photo
+
+        defer {
+            session.commitConfiguration()
+        }
+
+        guard
+            let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+            let input = try? AVCaptureDeviceInput(device: device),
+            session.canAddInput(input)
+        else {
+            errorMessage = "후면 카메라를 준비할 수 없습니다."
+            return
+        }
+
+        session.addInput(input)
+        videoInput = input
+
+        guard session.canAddOutput(photoOutput) else {
+            session.removeInput(input)
+            videoInput = nil
+            errorMessage = "사진 촬영 기능을 준비할 수 없습니다."
+            return
+        }
+
+        session.addOutput(photoOutput)
+        photoOutput.maxPhotoQualityPrioritization = .quality
+        isConfigured = true
+        isReady = true
+    }
+}
+
+private final class CameraPreviewUIView: UIView {
+    override class var layerClass: AnyClass {
+        AVCaptureVideoPreviewLayer.self
+    }
+
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
+    }
+}
+
+private struct CameraPreviewView: UIViewRepresentable {
+    let session: AVCaptureSession
+
+    func makeUIView(context: Context) -> CameraPreviewUIView {
+        let view = CameraPreviewUIView()
+        view.backgroundColor = .black
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
+        return view
+    }
+
+    func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {
+        if uiView.previewLayer.session !== session {
+            uiView.previewLayer.session = session
+        }
+    }
+}
+
+private struct CameraCaptureView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+
+    @StateObject private var camera = CameraSessionController()
+    @State private var referencePanelIsExpanded = false
+    @State private var captureFlashOpacity = 0.0
+    @State private var isFinishing = false
+
+    let referenceImages: [UIImage]
+    let selectedPhotoCount: Int
     let onCapture: () -> Void
     let onCancel: () -> Void
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(parent: self)
-    }
+    var body: some View {
+        ZStack {
+            CameraPreviewView(session: camera.session)
+                .ignoresSafeArea()
 
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = .camera
-        picker.cameraCaptureMode = .photo
-        picker.delegate = context.coordinator
-        return picker
-    }
+            Color.black.opacity(camera.isReady ? 0 : 0.72)
+                .ignoresSafeArea()
 
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+            LinearGradient(
+                colors: [.black.opacity(0.54), .clear, .black.opacity(0.66)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
 
-    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
-        private let parent: CameraCaptureView
+            VStack(spacing: 12) {
+                SelectedPhotoCameraOverlay(
+                    images: referenceImages,
+                    selectedPhotoCount: selectedPhotoCount,
+                    isExpanded: $referencePanelIsExpanded
+                )
 
-        init(parent: CameraCaptureView) {
-            self.parent = parent
+                HStack {
+                    cameraControlButton(systemName: "xmark", label: "카메라 닫기") {
+                        cancelCamera()
+                    }
+
+                    Spacer()
+
+                    cameraControlButton(systemName: "arrow.triangle.2.circlepath.camera", label: "카메라 전환") {
+                        camera.switchCamera()
+                    }
+                    .disabled(camera.isCapturing)
+                }
+
+                Spacer()
+
+                if !camera.isReady {
+                    ProgressView("카메라 준비 중")
+                        .tint(.white)
+                        .foregroundStyle(.white)
+                        .padding(.bottom, 8)
+                }
+
+                Button(action: capturePhoto) {
+                    ZStack {
+                        Circle()
+                            .stroke(.white, lineWidth: 5)
+                            .frame(width: 82, height: 82)
+
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 66, height: 66)
+
+                        if camera.isCapturing {
+                            ProgressView()
+                                .tint(.black)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!camera.isReady || camera.isCapturing || isFinishing)
+                .opacity(camera.isReady ? 1 : 0.55)
+                .accessibilityLabel("사진 촬영")
+                .padding(.bottom, 16)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+
+            Color.white
+                .opacity(captureFlashOpacity)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
         }
-
-        func imagePickerController(
-            _ picker: UIImagePickerController,
-            didFinishPickingMediaWithInfo _: [UIImagePickerController.InfoKey: Any]
+        .background(.black)
+        .statusBarHidden()
+        .onAppear {
+            camera.onPhotoCaptured = completeCapture
+            camera.start()
+        }
+        .onDisappear {
+            camera.onPhotoCaptured = nil
+            camera.stop()
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            switch newPhase {
+            case .active:
+                camera.start()
+            case .inactive, .background:
+                // The capture session should not run in the background. The Live
+                // Activity intentionally remains active until capture or cancel.
+                camera.stop()
+            @unknown default:
+                break
+            }
+        }
+        .alert(
+            "카메라 오류",
+            isPresented: Binding(
+                get: { camera.errorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        camera.errorMessage = nil
+                    }
+                }
+            )
         ) {
-            parent.onCapture()
-            parent.dismiss()
+            Button("확인", role: .cancel) {
+                camera.errorMessage = nil
+            }
+        } message: {
+            Text(camera.errorMessage ?? "카메라를 사용할 수 없습니다.")
         }
+    }
 
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            parent.onCancel()
-            parent.dismiss()
+    private func cameraControlButton(
+        systemName: String,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .background(.black.opacity(0.44), in: Circle())
+                .overlay {
+                    Circle()
+                        .stroke(.white.opacity(0.16), lineWidth: 1)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+    }
+
+    private func capturePhoto() {
+        guard !isFinishing else { return }
+        withAnimation(.linear(duration: 0.06)) {
+            captureFlashOpacity = 0.5
+        }
+        camera.capturePhoto()
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(110))
+            withAnimation(.linear(duration: 0.12)) {
+                captureFlashOpacity = 0
+            }
+        }
+    }
+
+    private func completeCapture() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        camera.stop()
+        onCapture()
+        dismiss()
+    }
+
+    private func cancelCamera() {
+        guard !isFinishing else { return }
+        isFinishing = true
+        camera.stop()
+        onCancel()
+        dismiss()
+    }
+}
+
+private struct SelectedPhotoCameraOverlay: View {
+    let images: [UIImage]
+    let selectedPhotoCount: Int
+    @Binding var isExpanded: Bool
+
+    private var visibleImages: [UIImage] {
+        Array(images.prefix(8))
+    }
+
+    private var compactImages: [UIImage] {
+        images
+    }
+
+    private var compactThumbnailSize: CGFloat {
+        switch compactImages.count {
+        case 0, 1: 132
+        case 2: 112
+        case 3: 92
+        default: 78
+        }
+    }
+
+    private var expandedThumbnailHeight: CGFloat {
+        switch visibleImages.count {
+        case 0, 1: 184
+        case 2: 152
+        case 3, 4: 100
+        default: 80
+        }
+    }
+
+    private var columns: [GridItem] {
+        let count = min(max(visibleImages.count, 1), 4)
+        return Array(repeating: GridItem(.flexible(), spacing: 6), count: count)
+    }
+
+    var body: some View {
+        Group {
+            if isExpanded {
+                LazyVGrid(columns: columns, spacing: 6) {
+                    ForEach(Array(visibleImages.enumerated()), id: \.offset) { _, image in
+                        Image(uiImage: image.withRenderingMode(.alwaysOriginal))
+                            .renderingMode(.original)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: expandedThumbnailHeight)
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 6) {
+                        ForEach(Array(compactImages.enumerated()), id: \.offset) { _, image in
+                            Image(uiImage: image.withRenderingMode(.alwaysOriginal))
+                                .renderingMode(.original)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: compactThumbnailSize, height: compactThumbnailSize)
+                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: compactThumbnailSize)
+                .transition(.opacity)
+            }
+        }
+        .padding(isExpanded ? 12 : 10)
+        .background(.black.opacity(0.54), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(.white.opacity(0.22), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.30), radius: 18, y: 8)
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .onLongPressGesture(minimumDuration: 0.35) {
+            withAnimation(.smooth(duration: 0.32, extraBounce: 0)) {
+                isExpanded.toggle()
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("선택한 아이디어 사진 \(selectedPhotoCount)장")
+        .accessibilityHint(isExpanded ? "길게 눌러 사진을 접습니다" : "길게 눌러 선택 사진을 펼칩니다")
+        .accessibilityAction {
+            withAnimation(.smooth(duration: 0.32, extraBounce: 0)) {
+                isExpanded.toggle()
+            }
         }
     }
 }
@@ -1202,9 +1660,39 @@ private struct FeedPhotoCard: View {
     }
 }
 
+private struct IdeaPhotoCard: View {
+    let photo: IdeaPhoto
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        GeometryReader { proxy in
+            Group {
+                if let image = photo.image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                } else {
+                    CheckerboardView(squareSize: 10)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(.black, lineWidth: 1)
+        }
+        .background(DesignColor.paper)
+        .accessibilityLabel(photo.title)
+    }
+}
+
 private struct FeedFolderCard: View {
     let color: Color
     let title: String
+    let photos: [IdeaPhoto]
 
     var body: some View {
         GeometryReader { proxy in
@@ -1220,15 +1708,15 @@ private struct FeedFolderCard: View {
                     .frame(width: size.width * 0.20, height: 59)
                     .position(x: size.width * 0.10, y: 61)
 
-                miniMemo(width: size.width * 0.52, height: 72, square: 7)
+                miniMemo(photo: previewPhoto(at: 0), width: size.width * 0.52, height: 72)
                     .rotationEffect(.degrees(-4))
                     .position(x: size.width * 0.35, y: 40)
 
-                miniMemo(width: size.width * 0.55, height: 78, square: 8)
+                miniMemo(photo: previewPhoto(at: 1), width: size.width * 0.55, height: 78)
                     .rotationEffect(.degrees(10))
                     .position(x: size.width * 0.62, y: 36)
 
-                miniMemo(width: size.width * 0.48, height: 70, square: 7)
+                miniMemo(photo: previewPhoto(at: 2), width: size.width * 0.48, height: 70)
                     .rotationEffect(.degrees(1))
                     .position(x: size.width * 0.52, y: 48)
 
@@ -1242,25 +1730,29 @@ private struct FeedFolderCard: View {
                     .frame(maxHeight: .infinity, alignment: .bottom)
 
                 Text(title)
-                    .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.black)
                     .frame(width: size.width - 14)
                     .position(x: size.width / 2, y: size.height - 24)
+
+                Text("\(photos.count)")
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(.black.opacity(0.64))
+                    .position(x: size.width - 13, y: size.height - 13)
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(title.replacingOccurrences(of: "\n", with: " "))
     }
 
-    private func miniMemo(width: CGFloat, height: CGFloat, square: CGFloat) -> some View {
-        CheckerboardView(squareSize: square)
-            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .stroke(.black, lineWidth: 0.9)
-            }
+    private func miniMemo(photo: IdeaPhoto, width: CGFloat, height: CGFloat) -> some View {
+        IdeaPhotoCard(photo: photo, cornerRadius: 7)
             .frame(width: width, height: height)
+    }
+
+    private func previewPhoto(at index: Int) -> IdeaPhoto {
+        photos[index % photos.count]
     }
 }
 
@@ -1503,7 +1995,7 @@ private struct IdeaStackView: View {
 
             ZStack {
                 ZStack {
-                    memo(width: 74, height: 116, square: 9)
+                    memo(photo: IdeaPhotoLibrary.outing[0], width: 74, height: 116, square: 9)
                         .matchedGeometryEffect(
                             id: IdeaTransitionElement.photoFour,
                             in: transitionNamespace,
@@ -1513,7 +2005,7 @@ private struct IdeaStackView: View {
                         .position(x: centerX - 103 * scale, y: 83)
                         .offset(x: -34 * swipeProgress, y: -46 * swipeProgress)
 
-                    memo(width: 79, height: 125, square: 9)
+                    memo(photo: IdeaPhotoLibrary.nap[0], width: 79, height: 125, square: 9)
                         .matchedGeometryEffect(
                             id: IdeaTransitionElement.photoFive,
                             in: transitionNamespace,
@@ -1523,15 +2015,15 @@ private struct IdeaStackView: View {
                         .position(x: centerX - 56 * scale, y: 52)
                         .offset(x: 34 * swipeProgress, y: -43 * swipeProgress)
 
-                    memo(width: 82, height: 124, square: 10)
+                    memo(photo: IdeaPhotoLibrary.food[0], width: 82, height: 124, square: 10)
                         .rotationEffect(.degrees(4))
                         .position(x: centerX - 10 * scale, y: 58)
 
-                    memo(width: 83, height: 126, square: 10)
+                    memo(photo: IdeaPhotoLibrary.walk[0], width: 83, height: 126, square: 10)
                         .rotationEffect(.degrees(14))
                         .position(x: centerX + 39 * scale, y: 43)
 
-                    memo(width: 77, height: 120, square: 9)
+                    memo(photo: IdeaPhotoLibrary.swimming[0], width: 77, height: 120, square: 9)
                         .rotationEffect(.degrees(7))
                         .position(x: centerX + 107 * scale, y: 77)
 
@@ -1555,7 +2047,7 @@ private struct IdeaStackView: View {
                         .position(x: centerX, y: 103)
                         .offset(x: -14 * swipeProgress, y: -45 * swipeProgress)
 
-                    memo(width: 72, height: 113, square: 9)
+                    memo(photo: IdeaPhotoLibrary.costume[0], width: 72, height: 113, square: 9)
                         .rotationEffect(.degrees(-1))
                         .position(x: centerX + 27 * scale, y: 96)
 
@@ -1569,7 +2061,7 @@ private struct IdeaStackView: View {
                         .position(x: centerX + 91 * scale, y: 128)
                         .offset(x: 24 * swipeProgress, y: -30 * swipeProgress)
 
-                    memo(width: 156, height: 168, square: 12)
+                    memo(photo: IdeaPhotoLibrary.instrument, width: 156, height: 168, square: 12)
                         .matchedGeometryEffect(
                             id: IdeaTransitionElement.photoOne,
                             in: transitionNamespace,
@@ -1579,7 +2071,7 @@ private struct IdeaStackView: View {
                         .position(x: centerX - 102 * scale, y: 191)
                         .offset(x: -22 * swipeProgress, y: -45 * swipeProgress)
 
-                    memo(width: 150, height: 172, square: 13)
+                    memo(photo: IdeaPhotoLibrary.event, width: 150, height: 172, square: 13)
                         .matchedGeometryEffect(
                             id: IdeaTransitionElement.photoTwo,
                             in: transitionNamespace,
@@ -1589,7 +2081,7 @@ private struct IdeaStackView: View {
                         .position(x: centerX - 2 * scale, y: 192)
                         .offset(x: 14 * swipeProgress, y: -57 * swipeProgress)
 
-                    memo(width: 145, height: 158, square: 12)
+                    memo(photo: IdeaPhotoLibrary.exercise, width: 145, height: 158, square: 12)
                         .matchedGeometryEffect(
                             id: IdeaTransitionElement.photoThree,
                             in: transitionNamespace,
@@ -1667,14 +2159,25 @@ private struct IdeaStackView: View {
             }
     }
 
-    private func memo(width: CGFloat, height: CGFloat, square: CGFloat) -> some View {
-        CheckerboardView(squareSize: square)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(.black, lineWidth: 1.05)
-            }
-            .frame(width: width, height: height)
+    @ViewBuilder
+    private func memo(
+        photo: IdeaPhoto? = nil,
+        width: CGFloat,
+        height: CGFloat,
+        square: CGFloat
+    ) -> some View {
+        if let photo {
+            IdeaPhotoCard(photo: photo, cornerRadius: 9)
+                .frame(width: width, height: height)
+        } else {
+            CheckerboardView(squareSize: square)
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(.black, lineWidth: 1.05)
+                }
+                .frame(width: width, height: height)
+        }
     }
 
     private func folder(color: Color, width: CGFloat, height: CGFloat) -> some View {

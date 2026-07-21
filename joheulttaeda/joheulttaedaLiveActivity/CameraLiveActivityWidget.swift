@@ -11,61 +11,34 @@ struct CameraLiveActivityWidget: Widget {
                 .activitySystemActionForegroundColor(.white)
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) {
-                    CameraActivityIcon(phase: context.state.phase)
-                }
-
-                DynamicIslandExpandedRegion(.trailing) {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(context.state.selectedPhotoCount)")
-                            .font(.headline.monospacedDigit())
-                        Text("선택됨")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
                 DynamicIslandExpandedRegion(.bottom) {
-                    HStack(spacing: 12) {
-                        CameraActivityPhotoGrid(
-                            thumbnailIDs: context.state.thumbnailIDs,
-                            totalCount: context.state.selectedPhotoCount,
-                            cellSize: 27,
-                            columns: 4
-                        )
-                        .frame(width: 117, height: 58, alignment: .leading)
-                        .privacySensitive()
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(context.state.phase.statusText)
-                                .font(.headline)
-                            Text(context.attributes.contextTitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.top, 4)
+                    CameraActivityPhotoMosaic(
+                        thumbnailIDs: context.state.thumbnailIDs,
+                        singleRowBaseCellSize: 110,
+                        multiRowCellSize: 58
+                    )
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 3)
                 }
             } compactLeading: {
                 CameraActivityThumbnail(
                     thumbnailID: context.state.thumbnailIDs.first,
                     cornerRadius: 5
                 )
-                .frame(width: 22, height: 22)
-                .privacySensitive()
+                .frame(width: 23, height: 23)
             } compactTrailing: {
-                Text("\(context.state.selectedPhotoCount)장")
-                    .font(.caption2.bold())
+                CameraActivityThumbnail(
+                    thumbnailID: context.state.thumbnailIDs.dropFirst().first
+                        ?? context.state.thumbnailIDs.first,
+                    cornerRadius: 5
+                )
+                .frame(width: 23, height: 23)
             } minimal: {
                 CameraActivityThumbnail(
                     thumbnailID: context.state.thumbnailIDs.first,
                     cornerRadius: 5
                 )
-                .frame(width: 22, height: 22)
-                .privacySensitive()
+                .frame(width: 23, height: 23)
             }
             .keylineTint(context.state.phase == .completed ? .green : .white)
         }
@@ -76,56 +49,14 @@ private struct CameraLockScreenActivityView: View {
     let context: ActivityViewContext<CameraActivityAttributes>
 
     var body: some View {
-        HStack(spacing: 14) {
-            CameraActivityPhotoGrid(
-                thumbnailIDs: context.state.thumbnailIDs,
-                totalCount: context.state.selectedPhotoCount,
-                cellSize: 33,
-                columns: 4
-            )
-                .frame(width: 144, height: 70, alignment: .leading)
-                .privacySensitive()
-
-            VStack(alignment: .leading, spacing: 5) {
-                Label(
-                    context.state.phase.statusText,
-                    systemImage: context.state.phase == .completed ? "checkmark.circle.fill" : "camera.fill"
-                )
-                .font(.headline)
-
-                Text(context.attributes.contextTitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if let completedAt = context.state.completedAt {
-                    Text(completedAt, style: .time)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("\(context.state.selectedPhotoCount)장의 사진 선택됨")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-    }
-}
-
-private struct CameraActivityIcon: View {
-    let phase: CameraActivityPhase
-
-    var body: some View {
-        Image(systemName: phase == .completed ? "checkmark.circle.fill" : "camera.fill")
-            .font(.title2.bold())
-            .foregroundStyle(phase == .completed ? .green : .white)
-            .frame(width: 46, height: 46)
-            .background(.white.opacity(0.12), in: Circle())
+        CameraActivityPhotoMosaic(
+            thumbnailIDs: context.state.thumbnailIDs,
+            singleRowBaseCellSize: 118,
+            multiRowCellSize: 64
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 
@@ -136,8 +67,10 @@ private struct CameraActivityThumbnail: View {
     var body: some View {
         Group {
             if let image = loadThumbnail() {
-                Image(uiImage: image)
+                Image(uiImage: image.withRenderingMode(.alwaysOriginal))
+                    .renderingMode(.original)
                     .resizable()
+                    .widgetAccentedRenderingMode(.fullColor)
                     .scaledToFill()
             } else {
                 ZStack {
@@ -154,6 +87,7 @@ private struct CameraActivityThumbnail: View {
                 .stroke(.white.opacity(0.20), lineWidth: 1)
         }
         .clipped()
+        .unredacted()
     }
 
     private func loadThumbnail() -> UIImage? {
@@ -165,24 +99,47 @@ private struct CameraActivityThumbnail: View {
             return nil
         }
 
-        return UIImage(data: data)
+        return UIImage(data: data)?.withRenderingMode(.alwaysOriginal)
     }
 }
 
-private struct CameraActivityPhotoGrid: View {
+private struct CameraActivityPhotoMosaic: View {
     let thumbnailIDs: [String]
-    let totalCount: Int
-    let cellSize: CGFloat
-    let columns: Int
+    let singleRowBaseCellSize: CGFloat
+    let multiRowCellSize: CGFloat
 
     private var visibleIDs: [String] {
         Array(thumbnailIDs.prefix(8))
     }
 
-    private var rows: [[String]] {
-        stride(from: 0, to: visibleIDs.count, by: columns).map { start in
-            Array(visibleIDs[start..<min(start + columns, visibleIDs.count)])
+    private var columnCount: Int {
+        min(max(visibleIDs.count, 1), 4)
+    }
+
+    private var cellSize: CGFloat {
+        switch visibleIDs.count {
+        case 0, 1:
+            singleRowBaseCellSize * 1.12
+        case 2:
+            singleRowBaseCellSize
+        case 3:
+            singleRowBaseCellSize * 0.82
+        case 4:
+            singleRowBaseCellSize * 0.72
+        default:
+            multiRowCellSize
         }
+    }
+
+    private var rows: [[String]] {
+        stride(from: 0, to: visibleIDs.count, by: columnCount).map { start in
+            Array(visibleIDs[start..<min(start + columnCount, visibleIDs.count)])
+        }
+    }
+
+    private var contentWidth: CGFloat {
+        let spacing = CGFloat(max(columnCount - 1, 0)) * 6
+        return (CGFloat(columnCount) * cellSize) + spacing
     }
 
     var body: some View {
@@ -191,33 +148,24 @@ private struct CameraActivityPhotoGrid: View {
                 ZStack {
                     Color.white.opacity(0.12)
                     Image(systemName: "photo.stack.fill")
-                        .font(.title2)
+                        .font(.system(size: 34, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.90))
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .frame(width: cellSize, height: cellSize)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
-                ZStack(alignment: .bottomTrailing) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                            HStack(spacing: 4) {
-                                ForEach(row, id: \.self) { thumbnailID in
-                                    CameraActivityThumbnail(
-                                        thumbnailID: thumbnailID,
-                                        cornerRadius: 6
-                                    )
-                                    .frame(width: cellSize, height: cellSize)
-                                }
+                VStack(spacing: 6) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                        HStack(spacing: 6) {
+                            ForEach(row, id: \.self) { thumbnailID in
+                                CameraActivityThumbnail(
+                                    thumbnailID: thumbnailID,
+                                    cornerRadius: min(16, cellSize * 0.18)
+                                )
+                                .frame(width: cellSize, height: cellSize)
                             }
                         }
-                    }
-
-                    if totalCount > visibleIDs.count {
-                        Text("+\(totalCount - visibleIDs.count)")
-                            .font(.caption2.bold())
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 5)
-                            .padding(.vertical, 3)
-                            .background(.black.opacity(0.72), in: Capsule())
+                        .frame(width: contentWidth, alignment: .center)
                     }
                 }
             }
