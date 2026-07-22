@@ -1,9 +1,24 @@
 import SwiftUI
+import SwiftData
+import Photos
+import PhotosUI
+import UIKit
 
 struct MemorySectionView: View {
     let onHome: () -> Void
 
+    @Query(sort: \MemoryPhoto.capturedAt, order: .reverse)
+    private var capturedPhotos: [MemoryPhoto]
     @State private var selectedMode: MemoryMode = .threads
+    @State private var presentedFolder: MemoryPhotoFolder?
+    @State private var photoImportSettingsArePresented = false
+
+    private func photos(in folder: MemoryPhotoFolder) -> [MemoryPhoto] {
+        capturedPhotos.filter {
+            $0.folderID == folder.rawValue
+                || (folder == .uncategorized && $0.folderID.isEmpty)
+        }
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -19,7 +34,13 @@ struct MemorySectionView: View {
                 case .months:
                     MonthsMemoryView()
                 case .threads:
-                    ThreadsMemoryView()
+                    ThreadsMemoryView(
+                        capturedPhotos: capturedPhotos,
+                        onFolderOpen: { presentedFolder = $0 },
+                        onSettingsOpen: {
+                            photoImportSettingsArePresented = true
+                        }
+                    )
                 }
             }
             .transition(.opacity)
@@ -38,6 +59,15 @@ struct MemorySectionView: View {
         .background(MemoryPalette.background.ignoresSafeArea())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Memory")
+        .fullScreenCover(item: $presentedFolder) { folder in
+            MemoryPhotoFolderView(
+                folder: folder,
+                photos: photos(in: folder)
+            )
+        }
+        .sheet(isPresented: $photoImportSettingsArePresented) {
+            MemoryPhotoImportSettingsView()
+        }
     }
 }
 
@@ -109,19 +139,63 @@ private struct MemoryNavigation: View {
 }
 
 private struct ThreadsMemoryView: View {
+    let capturedPhotos: [MemoryPhoto]
+    let onFolderOpen: (MemoryPhotoFolder) -> Void
+    let onSettingsOpen: () -> Void
+
     @State private var filter = "All"
+
+    private func photos(in folder: MemoryPhotoFolder) -> [MemoryPhoto] {
+        capturedPhotos.filter {
+            $0.folderID == folder.rawValue
+                || (folder == .uncategorized && $0.folderID.isEmpty)
+        }
+    }
 
     var body: some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 0) {
-                    filterButton("All")
-                    filterButton("Film")
-                    filterButton("Scrapbook")
+                HStack(spacing: 12) {
+                    HStack(spacing: 0) {
+                        filterButton("All")
+                        filterButton("Film")
+                        filterButton("Scrapbook")
+                    }
+                    .padding(3)
+                    .background(MemoryPalette.navigation, in: Capsule())
+                    .fixedSize()
+
+                    Spacer()
+
+                    Button(action: onSettingsOpen) {
+                        Image(systemName: "gearshape.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(MemoryPalette.text)
+                            .frame(width: 32, height: 32)
+                            .background(MemoryPalette.navigation, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Memory 가져오기 설정")
                 }
-                .padding(3)
-                .background(MemoryPalette.navigation, in: Capsule())
-                .fixedSize()
+
+                Text("Folders")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(MemoryPalette.text)
+
+                LazyVStack(spacing: 10) {
+                    ForEach(MemoryPhotoFolder.allCases) { folder in
+                        Button {
+                            onFolderOpen(folder)
+                        } label: {
+                            MemoryPhotoFolderCard(
+                                folder: folder,
+                                photos: photos(in: folder)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("\(folder.title) 사진 목록을 엽니다")
+                    }
+                }
 
                 Text("Recommended")
                     .font(.system(size: 15, weight: .bold, design: .rounded))
@@ -176,6 +250,671 @@ private struct ThreadsMemoryView: View {
                 }
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct MemoryPhotoImportSettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+
+    @AppStorage(MemoryPhotoLibraryImporter.automaticImportEnabledDefaultsKey)
+    private var automaticImportIsEnabled = false
+
+    @State private var authorizationStatus =
+        MemoryPhotoLibraryImporter.authorizationStatus
+    @State private var settingIsChanging = false
+    @State private var selectedPickerItems: [PhotosPickerItem] = []
+    @State private var pickerImportIsRunning = false
+    @State private var pickerImportMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Toggle(
+                        "기본 카메라 사진 자동 가져오기",
+                        isOn: automaticImportBinding
+                    )
+                    .disabled(settingIsChanging)
+
+                    LabeledContent("사진 접근 권한", value: authorizationTitle)
+                } footer: {
+                    Text(
+                        "기능을 켠 이후 기본 사진 보관함에 추가된 새 이미지만 "
+                            + "Memory로 복사하고 Vision으로 자동 분류합니다. "
+                            + "스크린샷과 영상은 제외됩니다."
+                    )
+                }
+
+                if authorizationStatus == .limited {
+                    Section("제한된 접근") {
+                        PhotosPicker(
+                            selection: $selectedPickerItems,
+                            maxSelectionCount: 20,
+                            matching: .images
+                        ) {
+                            Label(
+                                pickerImportIsRunning
+                                    ? "사진을 가져오는 중…"
+                                    : "사진을 직접 선택해서 가져오기",
+                                systemImage: "photo.on.rectangle.angled"
+                            )
+                        }
+                        .disabled(pickerImportIsRunning)
+
+                        Text(
+                            "제한된 접근에서는 새 사진을 자동으로 확인할 수 없습니다. "
+                                + "자동 가져오기를 사용하려면 설정에서 전체 접근을 허용해주세요."
+                        )
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                if authorizationStatus == .denied
+                    || authorizationStatus == .restricted
+                    || authorizationStatus == .limited {
+                    Section {
+                        Button("iOS 설정에서 사진 접근 변경") {
+                            guard let settingsURL = URL(
+                                string: UIApplication.openSettingsURLString
+                            ) else { return }
+                            openURL(settingsURL)
+                        }
+                    }
+                }
+
+                if let pickerImportMessage {
+                    Section("가져오기 결과") {
+                        Text(pickerImportMessage)
+                    }
+                }
+            }
+            .navigationTitle("Memory 설정")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("완료") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .onChange(of: selectedPickerItems) { _, items in
+            guard !items.isEmpty else { return }
+            importPickerItems(items)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            authorizationStatus = MemoryPhotoLibraryImporter.authorizationStatus
+            if authorizationStatus != .authorized {
+                automaticImportIsEnabled = false
+            }
+        }
+    }
+
+    private var automaticImportBinding: Binding<Bool> {
+        Binding(
+            get: { automaticImportIsEnabled },
+            set: { requestedValue in
+                guard !settingIsChanging else { return }
+                settingIsChanging = true
+
+                Task { @MainActor in
+                    let status = await MemoryPhotoLibraryImporter
+                        .setAutomaticImportEnabled(requestedValue)
+                    authorizationStatus = status
+                    automaticImportIsEnabled = requestedValue && status == .authorized
+
+                    if automaticImportIsEnabled {
+                        await MemoryPhotoLibraryImporter.importNewPhotos(
+                            modelContext: modelContext
+                        )
+                    }
+
+                    settingIsChanging = false
+                }
+            }
+        )
+    }
+
+    private var authorizationTitle: String {
+        switch authorizationStatus {
+        case .authorized:
+            "전체 접근"
+        case .limited:
+            "제한된 접근"
+        case .denied:
+            "허용 안 함"
+        case .restricted:
+            "접근 제한됨"
+        case .notDetermined:
+            "아직 요청하지 않음"
+        @unknown default:
+            "확인할 수 없음"
+        }
+    }
+
+    private func importPickerItems(_ items: [PhotosPickerItem]) {
+        pickerImportIsRunning = true
+        pickerImportMessage = nil
+
+        Task { @MainActor in
+            let result = await MemoryPhotoLibraryImporter.importSelectedPhotos(
+                items,
+                modelContext: modelContext
+            )
+            selectedPickerItems = []
+            pickerImportIsRunning = false
+
+            var messages = ["\(result.importedCount)장 가져옴"]
+            if result.skippedCount > 0 {
+                messages.append("중복 \(result.skippedCount)장 제외")
+            }
+            if result.failedCount > 0 {
+                messages.append("\(result.failedCount)장 실패")
+            }
+            pickerImportMessage = messages.joined(separator: " · ")
+        }
+    }
+}
+
+private struct MemoryPhotoFolderCard: View {
+    let folder: MemoryPhotoFolder
+    let photos: [MemoryPhoto]
+
+    private var previewPhotos: [MemoryPhoto] {
+        Array(photos.prefix(4))
+    }
+
+    var body: some View {
+        HStack(spacing: 13) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(MemoryPalette.scrapbook)
+
+                if previewPhotos.isEmpty {
+                    Image(systemName: "folder.fill")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(MemoryPalette.text.opacity(0.60))
+                } else {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: 3),
+                            GridItem(.flexible(), spacing: 3)
+                        ],
+                        spacing: 3
+                    ) {
+                        ForEach(previewPhotos) { photo in
+                            MemoryPhotoThumbnail(photo: photo)
+                        }
+                    }
+                    .padding(5)
+                }
+            }
+            .frame(width: 104, height: 104)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(folder.title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+
+                Text("\(photos.count)장")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(MemoryPalette.subdued)
+            }
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(MemoryPalette.subdued)
+        }
+        .foregroundStyle(MemoryPalette.text)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(MemoryPalette.paper)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.black, lineWidth: 0.9)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(folder.title) 폴더, 사진 \(photos.count)장")
+    }
+}
+
+private enum MemoryPhotoFolderAlert: Identifiable {
+    case confirmDeletion(Int)
+    case deletionFailed(String)
+
+    var id: String {
+        switch self {
+        case let .confirmDeletion(count):
+            "confirm-\(count)"
+        case let .deletionFailed(message):
+            "error-\(message)"
+        }
+    }
+}
+
+private struct MemoryPhotoFolderView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    let folder: MemoryPhotoFolder
+    let photos: [MemoryPhoto]
+
+    @State private var selectedPhoto: MemoryPhoto?
+    @State private var selectionModeIsActive = false
+    @State private var selectedPhotoIDs: Set<UUID> = []
+    @State private var activeAlert: MemoryPhotoFolderAlert?
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
+
+    var body: some View {
+        ZStack {
+            MemoryPalette.background
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                HStack(spacing: 12) {
+                    Button(action: dismiss.callAsFunction) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .bold))
+                            .frame(width: 40, height: 40)
+                            .background(MemoryPalette.paper, in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(folder.title) 폴더 닫기")
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(folder.title)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+
+                        Text("사진 \(photos.count)장")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(MemoryPalette.subdued)
+                    }
+
+                    Spacer()
+
+                    if !photos.isEmpty {
+                        Button(selectionModeIsActive ? "완료" : "선택") {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                selectionModeIsActive.toggle()
+                                if !selectionModeIsActive {
+                                    selectedPhotoIDs.removeAll()
+                                }
+                            }
+                        }
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(MemoryPalette.text)
+                        .padding(.horizontal, 13)
+                        .frame(height: 36)
+                        .background(MemoryPalette.paper, in: Capsule())
+                        .buttonStyle(.plain)
+                        .accessibilityHint(
+                            selectionModeIsActive
+                                ? "사진 선택을 종료합니다"
+                                : "삭제할 사진을 선택할 수 있습니다"
+                        )
+                    }
+                }
+                .foregroundStyle(MemoryPalette.text)
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+
+                if photos.isEmpty {
+                    ContentUnavailableView(
+                        "아직 촬영한 사진이 없습니다",
+                        systemImage: "camera",
+                        description: Text("Idea에서 사진을 선택한 뒤 카메라로 촬영해보세요.")
+                    )
+                    .foregroundStyle(MemoryPalette.text)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(.vertical) {
+                        LazyVGrid(columns: columns, spacing: 8) {
+                            ForEach(photos) { photo in
+                                let isSelected = selectedPhotoIDs.contains(photo.id)
+
+                                Button {
+                                    if selectionModeIsActive {
+                                        toggleSelection(photo.id)
+                                    } else {
+                                        selectedPhoto = photo
+                                    }
+                                } label: {
+                                    MemoryPhotoThumbnail(photo: photo)
+                                        .overlay {
+                                            if isSelected {
+                                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                    .stroke(.white, lineWidth: 3)
+                                                    .background(
+                                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                                            .fill(.black.opacity(0.13))
+                                                    )
+                                            }
+                                        }
+                                        .overlay(alignment: .topTrailing) {
+                                            if selectionModeIsActive {
+                                                MemoryPhotoSelectionBadge(isSelected: isSelected)
+                                                    .padding(6)
+                                            }
+                                        }
+                                        .overlay(alignment: .bottomTrailing) {
+                                            Text(photo.capturedAt, format: .dateTime.hour().minute())
+                                                .font(.system(size: 8, weight: .bold, design: .rounded))
+                                                .foregroundStyle(.white)
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 3)
+                                                .background(.black.opacity(0.48), in: Capsule())
+                                                .padding(5)
+                                        }
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(
+                                    accessibilityLabel(for: photo, isSelected: isSelected)
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 28)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if selectionModeIsActive {
+                HStack(spacing: 12) {
+                    Text("\(selectedPhotoIDs.count)장 선택")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(MemoryPalette.text)
+
+                    Spacer()
+
+                    Button {
+                        activeAlert = .confirmDeletion(selectedPhotoIDs.count)
+                    } label: {
+                        Label("삭제", systemImage: "trash.fill")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .frame(height: 40)
+                            .background(.red, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedPhotoIDs.isEmpty)
+                    .opacity(selectedPhotoIDs.isEmpty ? 0.42 : 1)
+                    .accessibilityLabel("선택한 사진 삭제")
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+            }
+        }
+        .fullScreenCover(item: $selectedPhoto) { photo in
+            MemoryPhotoFullscreenView(
+                photos: photos,
+                initialPhotoID: photo.id
+            )
+        }
+        .alert(item: $activeAlert) { alert in
+            switch alert {
+            case let .confirmDeletion(count):
+                Alert(
+                    title: Text("사진을 삭제할까요?"),
+                    message: Text("선택한 사진 \(count)장이 Memory에서 영구적으로 삭제됩니다."),
+                    primaryButton: .destructive(Text("삭제")) {
+                        deleteSelectedPhotos()
+                    },
+                    secondaryButton: .cancel(Text("취소"))
+                )
+            case let .deletionFailed(message):
+                Alert(
+                    title: Text("사진을 삭제하지 못했습니다"),
+                    message: Text(message),
+                    dismissButton: .default(Text("확인"))
+                )
+            }
+        }
+        .onChange(of: photos.map(\.id)) { _, availablePhotoIDs in
+            selectedPhotoIDs.formIntersection(availablePhotoIDs)
+            if availablePhotoIDs.isEmpty {
+                selectionModeIsActive = false
+            }
+        }
+    }
+
+    private func toggleSelection(_ photoID: UUID) {
+        withAnimation(.easeInOut(duration: 0.16)) {
+            if selectedPhotoIDs.contains(photoID) {
+                selectedPhotoIDs.remove(photoID)
+            } else {
+                selectedPhotoIDs.insert(photoID)
+            }
+        }
+    }
+
+    private func accessibilityLabel(
+        for photo: MemoryPhoto,
+        isSelected: Bool
+    ) -> String {
+        let capturedAt = photo.capturedAt.formatted(date: .long, time: .shortened)
+        if selectionModeIsActive {
+            return "\(capturedAt)에 촬영한 사진, \(isSelected ? "선택됨" : "선택 안 됨")"
+        }
+        return "\(capturedAt)에 촬영한 사진 크게 보기"
+    }
+
+    private func deleteSelectedPhotos() {
+        let photosToDelete = photos.filter { selectedPhotoIDs.contains($0.id) }
+        guard !photosToDelete.isEmpty else { return }
+
+        var stagedDeletions: [MemoryPhotoStorage.StagedDeletion] = []
+
+        do {
+            for photo in photosToDelete {
+                do {
+                    let deletion = try MemoryPhotoStorage.stagePhotoForDeletion(
+                        id: photo.id,
+                        originalRelativePath: photo.originalRelativePath,
+                        thumbnailRelativePath: photo.thumbnailRelativePath
+                    )
+                    stagedDeletions.append(deletion)
+                } catch MemoryPhotoStorageError.storedPhotoMissing {
+                    // A broken record should still be removable from Memory.
+                    continue
+                } catch MemoryPhotoStorageError.invalidStoredPath {
+                    continue
+                }
+            }
+        } catch {
+            for deletion in stagedDeletions.reversed() {
+                try? MemoryPhotoStorage.rollbackDeletion(deletion)
+            }
+            activeAlert = .deletionFailed(error.localizedDescription)
+            return
+        }
+
+        for photo in photosToDelete {
+            modelContext.delete(photo)
+        }
+
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            for deletion in stagedDeletions.reversed() {
+                try? MemoryPhotoStorage.rollbackDeletion(deletion)
+            }
+            activeAlert = .deletionFailed(error.localizedDescription)
+            return
+        }
+
+        for deletion in stagedDeletions {
+            try? MemoryPhotoStorage.finishDeletion(deletion)
+        }
+
+        withAnimation(.easeInOut(duration: 0.18)) {
+            selectedPhotoIDs.removeAll()
+            if photosToDelete.count == photos.count {
+                selectionModeIsActive = false
+            }
+        }
+    }
+}
+
+private struct MemoryPhotoSelectionBadge: View {
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isSelected ? Color.red : .black.opacity(0.30))
+
+            Circle()
+                .stroke(.white, lineWidth: 2)
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 11, weight: .heavy))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: 26, height: 26)
+        .shadow(color: .black.opacity(0.18), radius: 3, y: 1)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct MemoryPhotoThumbnail: View {
+    let photo: MemoryPhoto
+
+    var body: some View {
+        ZStack {
+            MemoryPalette.scrapbook
+
+            if let image = photo.thumbnailImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                ZStack {
+                    MemoryCheckerboard(squareSize: 10)
+                    Image(systemName: "photo")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(MemoryPalette.subdued)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipped()
+    }
+}
+
+private struct MemoryPhotoFullscreenView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let photos: [MemoryPhoto]
+
+    @State private var selectedPhotoID: UUID
+
+    init(photos: [MemoryPhoto], initialPhotoID: UUID) {
+        self.photos = photos
+        _selectedPhotoID = State(initialValue: initialPhotoID)
+    }
+
+    private var selectedPhoto: MemoryPhoto? {
+        photos.first { $0.id == selectedPhotoID }
+    }
+
+    private var selectedIndex: Int {
+        photos.firstIndex { $0.id == selectedPhotoID } ?? 0
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black
+                .ignoresSafeArea()
+
+            TabView(selection: $selectedPhotoID) {
+                ForEach(photos) { photo in
+                    MemoryPhotoFullscreenPage(photo: photo)
+                        .tag(photo.id)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .ignoresSafeArea()
+
+            VStack {
+                HStack {
+                    Button(action: dismiss.callAsFunction) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.black.opacity(0.54), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("사진 크게 보기 닫기")
+
+                    Spacer()
+                }
+
+                Spacer()
+
+                if let selectedPhoto {
+                    HStack(spacing: 10) {
+                        Text(selectedPhoto.capturedAt.formatted(date: .long, time: .shortened))
+
+                        Text("\(selectedIndex + 1) / \(photos.count)")
+                    }
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(.black.opacity(0.54), in: Capsule())
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+        }
+        .statusBarHidden()
+    }
+}
+
+private struct MemoryPhotoFullscreenPage: View {
+    let photo: MemoryPhoto
+
+    var body: some View {
+        Group {
+            if let image = photo.originalImage ?? photo.thumbnailImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ContentUnavailableView(
+                    "사진을 불러올 수 없습니다",
+                    systemImage: "photo.badge.exclamationmark"
+                )
+                .foregroundStyle(.white)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(.black)
     }
 }
 

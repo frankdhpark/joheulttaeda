@@ -7,13 +7,27 @@
 
 import SwiftUI
 import AVFoundation
+import AVKit
 import Combine
 import ImageIO
+import SwiftData
 import UIKit
+
+private enum IdeaFolderOpenMode {
+    case preview
+    case album
+}
+
+private struct IdeaFolderPresentation: Identifiable {
+    let id = UUID()
+    let folder: IdeaFolder
+    let openMode: IdeaFolderOpenMode
+}
 
 struct ContentView: View {
     @State private var selectedTab: HomeTab = .home
-    @State private var expandedFolder: IdeaFolder?
+    @State private var folderPresentation: IdeaFolderPresentation?
+    @State private var selectedIdeaPhotoIDs: Set<String> = []
     @Namespace private var ideaTransitionNamespace
 
     var body: some View {
@@ -31,9 +45,15 @@ struct ContentView: View {
                     .ignoresSafeArea()
 
                 if selectedTab == .idea {
-                    IdeaFeedView(transitionNamespace: ideaTransitionNamespace) { folder in
+                    IdeaFeedView(
+                        transitionNamespace: ideaTransitionNamespace,
+                        selectedPhotoIDs: $selectedIdeaPhotoIDs
+                    ) { folder, openMode in
                         withAnimation(.easeInOut(duration: 0.22)) {
-                            expandedFolder = folder
+                            folderPresentation = IdeaFolderPresentation(
+                                folder: folder,
+                                openMode: openMode
+                            )
                         }
                     }
                         .frame(width: width, height: height)
@@ -87,19 +107,24 @@ struct ContentView: View {
                         )
                 }
 
-                if expandedFolder == nil && selectedTab != .memory {
+                if folderPresentation == nil && selectedTab != .memory {
                     BottomNavigation(selectedTab: $selectedTab)
                         .padding(.leading, 20)
                         .padding(.bottom, 8)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                 }
 
-                if let expandedFolder {
-                    ExpandedFolderView(folder: expandedFolder) {
+                if let folderPresentation {
+                    ExpandedFolderView(
+                        folder: folderPresentation.folder,
+                        selectedPhotoIDs: $selectedIdeaPhotoIDs,
+                        opensAlbumDirectly: folderPresentation.openMode == .album
+                    ) {
                         withAnimation(.easeInOut(duration: 0.22)) {
-                            self.expandedFolder = nil
+                            self.folderPresentation = nil
                         }
                     }
+                    .id(folderPresentation.id)
                     .frame(width: width, height: height)
                     .transition(.opacity)
                     .zIndex(10)
@@ -115,13 +140,15 @@ struct ContentView: View {
 
 private struct IdeaFeedView: View {
     let transitionNamespace: Namespace.ID
-    let onFolderTap: (IdeaFolder) -> Void
+    @Binding var selectedPhotoIDs: Set<String>
+    let onFolderOpen: (IdeaFolder, IdeaFolderOpenMode) -> Void
 
+    @Query(sort: \IdeaMediaItem.importedAt, order: .reverse)
+    private var importedMedia: [IdeaMediaItem]
     @State private var ageFilter = "Age"
     @State private var seasonFilter = "Season"
     @State private var spotFilter = "Spot"
     @State private var chromeIsVisible = false
-    @State private var selectedPhotos: Set<String> = []
 
     var body: some View {
         GeometryReader { proxy in
@@ -159,6 +186,8 @@ private struct IdeaFeedView: View {
 
                         HStack(alignment: .top, spacing: columnSpacing) {
                             VStack(spacing: 24) {
+                                folderButton(.inbox, width: cardWidth)
+
                                 folderButton(.outing, width: cardWidth)
 
                                 folderButton(.nap, width: cardWidth)
@@ -221,7 +250,7 @@ private struct IdeaFeedView: View {
                     .opacity(chromeIsVisible ? 1 : 0)
                     .accessibilityHidden(true)
 
-                if !selectedPhotos.isEmpty {
+                if !selectedPhotoIDs.isEmpty {
                     selectionSummary
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                         .padding(.top, 10)
@@ -230,8 +259,8 @@ private struct IdeaFeedView: View {
                         .zIndex(3)
 
                     CameraLauncherButton(
-                        selectedPhotos: IdeaPhotoLibrary.singlePhotos
-                            .filter { selectedPhotos.contains($0.id) }
+                        selectedPhotos: allSelectablePhotos
+                            .filter { selectedPhotoIDs.contains($0.id) }
                             .map { IdeaPhotoThumbnailDescriptor(photo: $0) },
                         contextTitle: "Idea"
                     )
@@ -250,7 +279,7 @@ private struct IdeaFeedView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("아이디어 피드")
-        .sensoryFeedback(.selection, trigger: selectedPhotos.count)
+        .sensoryFeedback(.selection, trigger: selectedPhotoIDs.count)
     }
 
     private var selectionSummary: some View {
@@ -258,12 +287,12 @@ private struct IdeaFeedView: View {
             Image(systemName: "checkmark.circle.fill")
                 .font(.system(size: 13, weight: .bold))
 
-            Text("\(selectedPhotos.count)")
+            Text("\(selectedPhotoIDs.count)")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
 
             Button {
                 withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
-                    selectedPhotos.removeAll()
+                    selectedPhotoIDs.removeAll()
                 }
             } label: {
                 Image(systemName: "xmark")
@@ -285,23 +314,44 @@ private struct IdeaFeedView: View {
         }
         .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(selectedPhotos.count)장의 사진 선택됨")
+        .accessibilityLabel("\(selectedPhotoIDs.count)장의 사진 선택됨")
     }
 
     private func folderButton(_ folder: IdeaFolder, width: CGFloat) -> some View {
-        Button {
-            onFolderTap(folder)
-        } label: {
-            folderLabel(folder, width: width)
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("폴더의 사진을 펼칩니다")
+        folderLabel(folder, width: width)
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .gesture(folderGesture(for: folder))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("탭하면 앨범을 열고, 길게 누르면 폴더를 미리 봅니다")
+            .accessibilityAction {
+                onFolderOpen(folder, .album)
+            }
+            .accessibilityAction(named: "폴더 미리보기") {
+                onFolderOpen(folder, .preview)
+            }
+    }
+
+    private func folderGesture(
+        for folder: IdeaFolder
+    ) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35, maximumDistance: 24)
+            .exclusively(before: TapGesture())
+            .onEnded { value in
+                switch value {
+                case .first:
+                    onFolderOpen(folder, .preview)
+                case .second:
+                    onFolderOpen(folder, .album)
+                }
+            }
     }
 
     @ViewBuilder
     private func folderLabel(_ folder: IdeaFolder, width: CGFloat) -> some View {
+        let folderPhotos = photos(for: folder)
+
         if let transitionElement = folder.transitionElement {
-            FeedFolderCard(color: folder.color, title: folder.title, photos: folder.photos)
+            FeedFolderCard(color: folder.color, title: folder.title, photos: folderPhotos)
                 .frame(width: width, height: 126)
                 .matchedGeometryEffect(
                     id: transitionElement,
@@ -309,9 +359,19 @@ private struct IdeaFeedView: View {
                     isSource: false
                 )
         } else {
-            FeedFolderCard(color: folder.color, title: folder.title, photos: folder.photos)
+            FeedFolderCard(color: folder.color, title: folder.title, photos: folderPhotos)
                 .frame(width: width, height: 126)
         }
+    }
+
+    private func photos(for folder: IdeaFolder) -> [IdeaPhoto] {
+        folder.photos + importedMedia
+            .filter { $0.folderID == folder.rawValue }
+            .map { IdeaPhoto(mediaItem: $0) }
+    }
+
+    private var allSelectablePhotos: [IdeaPhoto] {
+        IdeaPhotoLibrary.allPhotos(importedMedia: importedMedia)
     }
 
     private func photoButton(
@@ -320,14 +380,14 @@ private struct IdeaFeedView: View {
         width: CGFloat,
         height: CGFloat
     ) -> some View {
-        let isSelected = selectedPhotos.contains(photo.id)
+        let isSelected = selectedPhotoIDs.contains(photo.id)
 
         return Button {
             withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
                 if isSelected {
-                    selectedPhotos.remove(photo.id)
+                    selectedPhotoIDs.remove(photo.id)
                 } else {
-                    selectedPhotos.insert(photo.id)
+                    selectedPhotoIDs.insert(photo.id)
                 }
             }
         } label: {
@@ -383,14 +443,59 @@ private struct IdeaPhoto: Identifiable, Hashable {
     let id: String
     let fileName: String
     let title: String
+    var mediaKind: IdeaMediaKind = .image
+    var originalRelativePath: String? = nil
+    var thumbnailRelativePath: String? = nil
+    var sourceURLString: String? = nil
 
     var image: UIImage? {
-        IdeaPhotoImageStore.shared.image(named: fileName)
+        if let thumbnailRelativePath {
+            return IdeaPhotoImageStore.shared.image(relativePath: thumbnailRelativePath)
+        }
+        return IdeaPhotoImageStore.shared.image(named: fileName)
+    }
+
+    var originalURL: URL? {
+        originalRelativePath.flatMap { IdeaMediaStorage.url(forRelativePath: $0) }
+    }
+
+    var sourceURL: URL? {
+        sourceURLString.flatMap(URL.init(string:))
     }
 
     var cardAspectRatio: CGFloat {
         guard let image, image.size.width > 0 else { return 1.2 }
         return min(1.58, max(0.88, image.size.height / image.size.width))
+    }
+
+    init(
+        id: String,
+        fileName: String,
+        title: String,
+        mediaKind: IdeaMediaKind = .image,
+        originalRelativePath: String? = nil,
+        thumbnailRelativePath: String? = nil,
+        sourceURLString: String? = nil
+    ) {
+        self.id = id
+        self.fileName = fileName
+        self.title = title
+        self.mediaKind = mediaKind
+        self.originalRelativePath = originalRelativePath
+        self.thumbnailRelativePath = thumbnailRelativePath
+        self.sourceURLString = sourceURLString
+    }
+
+    init(mediaItem: IdeaMediaItem) {
+        self.init(
+            id: mediaItem.id.uuidString,
+            fileName: "",
+            title: mediaItem.title,
+            mediaKind: mediaItem.kind,
+            originalRelativePath: mediaItem.originalRelativePath,
+            thumbnailRelativePath: mediaItem.thumbnailRelativePath,
+            sourceURLString: mediaItem.sourceURLString
+        )
     }
 }
 
@@ -428,6 +533,18 @@ private final class IdeaPhotoImageStore {
 
         let image = UIImage(cgImage: thumbnail)
         cache.setObject(image, forKey: fileName as NSString)
+        return image
+    }
+
+    func image(relativePath: String) -> UIImage? {
+        let cacheKey = "stored:\(relativePath)" as NSString
+        if let cached = cache.object(forKey: cacheKey) {
+            return cached
+        }
+        guard let image = IdeaMediaStorage.image(forRelativePath: relativePath) else {
+            return nil
+        }
+        cache.setObject(image, forKey: cacheKey)
         return image
     }
 }
@@ -470,6 +587,10 @@ private enum IdeaPhotoLibrary {
         + costume
         + fashion
 
+    static func allPhotos(importedMedia: [IdeaMediaItem]) -> [IdeaPhoto] {
+        allPhotos + importedMedia.map { IdeaPhoto(mediaItem: $0) }
+    }
+
     private static func makePhotos(
         prefix: String,
         count: Int,
@@ -490,6 +611,7 @@ private enum IdeaPhotoLibrary {
 }
 
 private enum IdeaFolder: String, Identifiable {
+    case inbox = "idea-inbox"
     case outing
     case nap
     case food
@@ -502,6 +624,7 @@ private enum IdeaFolder: String, Identifiable {
 
     var title: String {
         switch self {
+        case .inbox: "새 아이디어"
         case .outing: "나들이"
         case .nap: "낮잠"
         case .food: "먹방"
@@ -514,7 +637,7 @@ private enum IdeaFolder: String, Identifiable {
 
     var color: Color {
         switch self {
-        case .outing, .walk, .fashion:
+        case .inbox, .outing, .walk, .fashion:
             DesignColor.yellow
         case .nap, .costume:
             DesignColor.pink
@@ -525,6 +648,7 @@ private enum IdeaFolder: String, Identifiable {
 
     var photos: [IdeaPhoto] {
         switch self {
+        case .inbox: []
         case .outing: IdeaPhotoLibrary.outing
         case .nap: IdeaPhotoLibrary.nap
         case .food: IdeaPhotoLibrary.food
@@ -537,6 +661,7 @@ private enum IdeaFolder: String, Identifiable {
 
     var transitionElement: IdeaTransitionElement? {
         switch self {
+        case .inbox: nil
         case .outing: .yellowFolder
         case .nap: .pinkFolder
         case .food: .blueFolder
@@ -547,20 +672,39 @@ private enum IdeaFolder: String, Identifiable {
 
 private struct ExpandedFolderView: View {
     let folder: IdeaFolder
+    @Binding var selectedPhotoIDs: Set<String>
+    let opensAlbumDirectly: Bool
     let onDismiss: () -> Void
 
+    @Query(sort: \IdeaMediaItem.importedAt, order: .reverse)
+    private var importedMedia: [IdeaMediaItem]
     @State private var photosAreExpanded = false
     @State private var albumIsPresented = false
     @State private var albumSwipeOffset: CGFloat = 0
     @State private var isFinishingAlbumSwipe = false
-    @State private var selectedAlbumPhotos: Set<Int> = []
     @Namespace private var albumTransitionNamespace
+
+    init(
+        folder: IdeaFolder,
+        selectedPhotoIDs: Binding<Set<String>>,
+        opensAlbumDirectly: Bool,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.folder = folder
+        _selectedPhotoIDs = selectedPhotoIDs
+        self.opensAlbumDirectly = opensAlbumDirectly
+        self.onDismiss = onDismiss
+        _photosAreExpanded = State(initialValue: opensAlbumDirectly)
+        _albumIsPresented = State(initialValue: opensAlbumDirectly)
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let size = proxy.size
             let photoWidth = min(166, size.width * 0.40)
-            let albumPhotos = folder.albumPhotos
+            let albumPhotos = displayedPhotos.enumerated().map { index, photo in
+                IdeaAlbumPhoto(id: index, photo: photo)
+            }
 
             ZStack {
                 DesignColor.background
@@ -571,8 +715,8 @@ private struct ExpandedFolderView: View {
                         folder: folder,
                         photos: albumPhotos,
                         transitionNamespace: albumTransitionNamespace,
-                        selectedPhotos: $selectedAlbumPhotos,
-                        onBack: closeAlbum
+                        selectedPhotoIDs: $selectedPhotoIDs,
+                        onBack: opensAlbumDirectly ? onDismiss : closeAlbum
                     )
                     .transition(.identity)
                 } else {
@@ -618,16 +762,12 @@ private struct ExpandedFolderView: View {
                     .transition(.identity)
                 }
 
-                if albumIsPresented && !selectedAlbumPhotos.isEmpty {
+                if albumIsPresented && !selectedPhotoIDs.isEmpty {
                     CameraLauncherButton(
-                        selectedPhotos: albumPhotos
-                            .filter { selectedAlbumPhotos.contains($0.id) }
-                            .map {
-                                IdeaPhotoThumbnailDescriptor(
-                                    photo: $0.photo
-                                )
-                            },
-                        contextTitle: folder.title.replacingOccurrences(of: "\n", with: " ")
+                        selectedPhotos: allSelectablePhotos
+                            .filter { selectedPhotoIDs.contains($0.id) }
+                            .map { IdeaPhotoThumbnailDescriptor(photo: $0) },
+                        contextTitle: "Idea"
                     )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                         .padding(.trailing, 20)
@@ -638,6 +778,7 @@ private struct ExpandedFolderView: View {
             }
         }
         .onAppear {
+            guard !opensAlbumDirectly else { return }
             withAnimation(.spring(response: 0.62, dampingFraction: 0.78)) {
                 photosAreExpanded = true
             }
@@ -646,7 +787,17 @@ private struct ExpandedFolderView: View {
         .accessibilityLabel(folder.title.replacingOccurrences(of: "\n", with: " "))
         .accessibilityAction(named: "앨범 열기", openAlbum)
         .accessibilityAction(.escape, onDismiss)
-        .sensoryFeedback(.selection, trigger: selectedAlbumPhotos.count)
+        .sensoryFeedback(.selection, trigger: selectedPhotoIDs.count)
+    }
+
+    private var displayedPhotos: [IdeaPhoto] {
+        folder.photos + importedMedia
+            .filter { $0.folderID == folder.rawValue }
+            .map { IdeaPhoto(mediaItem: $0) }
+    }
+
+    private var allSelectablePhotos: [IdeaPhoto] {
+        IdeaPhotoLibrary.allPhotos(importedMedia: importedMedia)
     }
 
     private func expandedPhoto(
@@ -738,7 +889,6 @@ private struct ExpandedFolderView: View {
     private func closeAlbum() {
         withAnimation(.smooth(duration: 0.58, extraBounce: 0)) {
             albumIsPresented = false
-            selectedAlbumPhotos.removeAll()
         }
     }
 
@@ -758,14 +908,6 @@ private struct IdeaAlbumPhoto: Identifiable {
     let photo: IdeaPhoto
 
     var albumAspectRatio: CGFloat { photo.cardAspectRatio }
-}
-
-private extension IdeaFolder {
-    var albumPhotos: [IdeaAlbumPhoto] {
-        photos.enumerated().map { index, photo in
-            IdeaAlbumPhoto(id: index, photo: photo)
-        }
-    }
 }
 
 private struct IdeaAlbumPreviewPlacement {
@@ -791,10 +933,13 @@ private struct IdeaFolderAlbumView: View {
     let folder: IdeaFolder
     let photos: [IdeaAlbumPhoto]
     let transitionNamespace: Namespace.ID
-    @Binding var selectedPhotos: Set<Int>
+    @Binding var selectedPhotoIDs: Set<String>
     let onBack: () -> Void
 
     @State private var chromeIsVisible = false
+    @State private var selectionModeIsActive = false
+    @State private var previewedPhoto: IdeaPhoto?
+    @State private var previewedMedia: IdeaPhoto?
 
     var body: some View {
         GeometryReader { proxy in
@@ -829,6 +974,23 @@ private struct IdeaFolderAlbumView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(folder.title.replacingOccurrences(of: "\n", with: " ")) 앨범")
+        .fullScreenCover(item: $previewedPhoto) { photo in
+            IdeaPhotoFullscreenView(photo: photo)
+        }
+        .sheet(item: $previewedMedia) { photo in
+            switch photo.mediaKind {
+            case .video:
+                if let videoURL = photo.originalURL {
+                    IdeaVideoPlayerView(title: photo.title, videoURL: videoURL)
+                }
+            case .link:
+                if let sourceURL = photo.sourceURL {
+                    InstagramEmbedPlayerView(title: photo.title, sourceURL: sourceURL)
+                }
+            case .image:
+                EmptyView()
+            }
+        }
     }
 
     private var albumHeader: some View {
@@ -859,30 +1021,63 @@ private struct IdeaFolderAlbumView: View {
 
             Spacer(minLength: 0)
 
-            if selectedPhotos.isEmpty {
-                Text("\(photos.count) photos")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(DesignColor.text.opacity(0.78))
-            } else {
-                CompactPhotoSelectionSummary(
-                    count: selectedPhotos.count,
-                    onClear: clearSelection
-                )
-                .transition(.scale(scale: 0.88, anchor: .trailing).combined(with: .opacity))
-            }
+            selectionControls
         }
         .opacity(chromeIsVisible ? 1 : 0)
         .offset(y: chromeIsVisible ? 0 : -6)
     }
 
+    private var selectionControls: some View {
+        HStack(spacing: 7) {
+            if !selectedPhotoIDs.isEmpty {
+                CompactPhotoSelectionSummary(
+                    count: selectedPhotoIDs.count,
+                    onClear: clearSelection
+                )
+                .transition(.scale(scale: 0.88, anchor: .trailing).combined(with: .opacity))
+            } else if selectionModeIsActive {
+                Text("사진을 탭하세요")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DesignColor.text.opacity(0.82))
+                    .transition(.opacity)
+            } else {
+                Text("\(photos.count)")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(DesignColor.text.opacity(0.78))
+            }
+
+            Button {
+                withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+                    selectionModeIsActive.toggle()
+                }
+            } label: {
+                Text(selectionModeIsActive ? "완료" : "선택")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(selectionModeIsActive ? .white : DesignColor.darkText)
+                    .padding(.horizontal, 11)
+                    .frame(height: 32)
+                    .background(
+                        selectionModeIsActive ? DesignColor.blue : DesignColor.navigation,
+                        in: Capsule()
+                    )
+                    .overlay {
+                        Capsule()
+                            .stroke(.black.opacity(selectionModeIsActive ? 0.08 : 0.16), lineWidth: 0.8)
+                    }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(selectionModeIsActive ? "사진 선택 완료" : "사진 선택 모드 시작")
+        }
+    }
+
     private func albumColumn(_ columnPhotos: [IdeaAlbumPhoto], width: CGFloat) -> some View {
         VStack(spacing: 16) {
             ForEach(columnPhotos) { photo in
-                let isSelected = selectedPhotos.contains(photo.id)
+                let isSelected = selectedPhotoIDs.contains(photo.photo.id)
 
                 VStack(alignment: .leading, spacing: 5) {
                     Button {
-                        toggleSelection(photo.id)
+                        handleTap(photo)
                     } label: {
                         IdeaPhotoCard(photo: photo.photo, cornerRadius: 9)
                             .frame(width: width, height: width * photo.albumAspectRatio)
@@ -898,17 +1093,20 @@ private struct IdeaFolderAlbumView: View {
                                 }
                             }
                             .overlay(alignment: .topTrailing) {
-                                if isSelected {
-                                    PhotoSelectionBadge()
+                                if photo.photo.mediaKind != .video && selectionModeIsActive {
+                                    PhotoSelectionModeBadge(isSelected: isSelected)
                                         .padding(8)
                                         .transition(.scale.combined(with: .opacity))
+                                } else if isSelected {
+                                    PhotoSelectionBadge()
+                                        .padding(8)
                                 }
                             }
                             .scaleEffect(isSelected ? 0.975 : 1)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(photo.photo.title)
-                    .accessibilityHint(isSelected ? "탭하여 선택을 해제합니다" : "탭하여 사진을 선택합니다")
+                    .accessibilityHint(accessibilityHint(for: photo, isSelected: isSelected))
                     .accessibilityAddTraits(isSelected ? .isSelected : [])
 
                     Text(photo.photo.title)
@@ -920,19 +1118,150 @@ private struct IdeaFolderAlbumView: View {
         }
     }
 
-    private func toggleSelection(_ id: Int) {
-        withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
-            if selectedPhotos.contains(id) {
-                selectedPhotos.remove(id)
+    private func handleTap(_ photo: IdeaAlbumPhoto) {
+        switch photo.photo.mediaKind {
+        case .image:
+            if selectionModeIsActive {
+                toggleSelection(photo.photo.id)
             } else {
-                selectedPhotos.insert(id)
+                previewedPhoto = photo.photo
+            }
+        case .video:
+            previewedMedia = photo.photo
+        case .link:
+            if selectionModeIsActive {
+                toggleSelection(photo.photo.id)
+            } else {
+                previewedMedia = photo.photo
+            }
+        }
+    }
+
+    private func accessibilityHint(for photo: IdeaAlbumPhoto, isSelected: Bool) -> String {
+        switch photo.photo.mediaKind {
+        case .image:
+            if selectionModeIsActive {
+                isSelected ? "탭하여 선택을 해제합니다" : "탭하여 사진을 선택합니다"
+            } else {
+                "탭하여 사진을 전체 화면으로 봅니다"
+            }
+        case .video:
+            "탭하여 저장된 릴스를 재생합니다"
+        case .link:
+            if selectionModeIsActive {
+                isSelected ? "탭하여 선택을 해제합니다" : "탭하여 Instagram 링크를 선택합니다"
+            } else {
+                "탭하여 앱 안에서 Instagram 게시물을 엽니다"
+            }
+        }
+    }
+
+    private func toggleSelection(_ id: String) {
+        withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
+            if selectedPhotoIDs.contains(id) {
+                selectedPhotoIDs.remove(id)
+            } else {
+                selectedPhotoIDs.insert(id)
             }
         }
     }
 
     private func clearSelection() {
         withAnimation(.smooth(duration: 0.22, extraBounce: 0)) {
-            selectedPhotos.removeAll()
+            selectedPhotoIDs.removeAll()
+        }
+    }
+}
+
+private struct IdeaPhotoFullscreenView: View {
+    let photo: IdeaPhoto
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if let image = photo.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel(photo.title)
+            } else {
+                ContentUnavailableView(
+                    "사진을 표시할 수 없습니다",
+                    systemImage: "photo.badge.exclamationmark"
+                )
+                .foregroundStyle(.white)
+            }
+
+            VStack(spacing: 0) {
+                HStack {
+                    Spacer()
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 44, height: 44)
+                            .background(.black.opacity(0.58), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("사진 닫기")
+                }
+
+                Spacer()
+
+                Text(photo.title)
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(.black.opacity(0.58), in: Capsule())
+            }
+            .padding(.horizontal, 16)
+            .safeAreaPadding(.vertical, 12)
+        }
+        .statusBarHidden(true)
+    }
+}
+
+private struct IdeaVideoPlayerView: View {
+    let title: String
+    let videoURL: URL
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var player: AVPlayer
+
+    init(title: String, videoURL: URL) {
+        self.title = title
+        self.videoURL = videoURL
+        _player = State(initialValue: AVPlayer(url: videoURL))
+    }
+
+    var body: some View {
+        NavigationStack {
+            VideoPlayer(player: player)
+                .background(.black)
+                .navigationTitle(title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("완료") {
+                            dismiss()
+                        }
+                    }
+                }
+                .onAppear {
+                    player.play()
+                }
+                .onDisappear {
+                    player.pause()
+                }
         }
     }
 }
@@ -952,6 +1281,30 @@ private struct PhotoSelectionBadge: View {
     }
 }
 
+private struct PhotoSelectionModeBadge: View {
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(isSelected ? DesignColor.blue : .black.opacity(0.26))
+                .frame(width: 27, height: 27)
+
+            Circle()
+                .stroke(.white, lineWidth: 2)
+                .frame(width: 27, height: 27)
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(.white)
+            }
+        }
+        .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
+        .accessibilityHidden(true)
+    }
+}
+
 private struct CompactPhotoSelectionSummary: View {
     let count: Int
     let onClear: () -> Void
@@ -963,6 +1316,8 @@ private struct CompactPhotoSelectionSummary: View {
 
             Text("\(count)")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
+                .lineLimit(1)
+                .frame(minWidth: 22)
 
             Button(action: onClear) {
                 Image(systemName: "xmark")
@@ -974,9 +1329,10 @@ private struct CompactPhotoSelectionSummary: View {
             .accessibilityLabel("사진 선택 모두 해제")
         }
         .foregroundStyle(DesignColor.darkText)
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
+        .padding(.leading, 13)
+        .padding(.trailing, 7)
         .padding(.vertical, 4)
+        .fixedSize(horizontal: true, vertical: false)
         .background(DesignColor.navigation.opacity(0.96), in: Capsule())
         .overlay {
             Capsule()
@@ -1143,7 +1499,7 @@ private final class CameraSessionController: NSObject, ObservableObject, AVCaptu
     @Published private(set) var cameraPosition: AVCaptureDevice.Position = .back
     @Published var errorMessage: String?
 
-    var onPhotoCaptured: (() -> Void)?
+    var onPhotoCaptured: ((Data) -> Void)?
 
     private let photoOutput = AVCapturePhotoOutput()
     private var videoInput: AVCaptureDeviceInput?
@@ -1210,15 +1566,15 @@ private final class CameraSessionController: NSObject, ObservableObject, AVCaptu
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
-        let capturedSuccessfully = error == nil && photo.fileDataRepresentation() != nil
+        let photoData = error == nil ? photo.fileDataRepresentation() : nil
         let errorDescription = error?.localizedDescription
 
         Task { @MainActor [weak self] in
             guard let self else { return }
             self.isCapturing = false
 
-            if capturedSuccessfully {
-                self.onPhotoCaptured?()
+            if let photoData {
+                self.onPhotoCaptured?(photoData)
             } else {
                 self.errorMessage = errorDescription ?? "사진을 촬영하지 못했습니다. 다시 시도해주세요."
             }
@@ -1289,6 +1645,7 @@ private struct CameraPreviewView: UIViewRepresentable {
 
 private struct CameraCaptureView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var camera = CameraSessionController()
@@ -1453,10 +1810,32 @@ private struct CameraCaptureView: View {
         }
     }
 
-    private func completeCapture() {
+    private func completeCapture(photoData: Data) {
         guard !isFinishing else { return }
         isFinishing = true
         camera.stop()
+
+        let recorded: RecordedMemoryPhoto
+
+        do {
+            recorded = try MemoryPhotoRecorder.record(
+                photoData: photoData,
+                modelContext: modelContext
+            )
+        } catch {
+            isFinishing = false
+            camera.errorMessage = "사진을 Memory에 저장하지 못했습니다. \(error.localizedDescription)"
+            camera.start()
+            return
+        }
+
+        Task { @MainActor in
+            await MemoryPhotoAutoClassifier.classify(
+                recorded: recorded,
+                modelContext: modelContext
+            )
+        }
+
         onCapture()
         dismiss()
     }
@@ -1678,6 +2057,33 @@ private struct IdeaPhotoCard: View {
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height)
+            .overlay {
+                if photo.mediaKind == .video {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: min(proxy.size.width, proxy.size.height) * 0.18, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(
+                            width: min(proxy.size.width, proxy.size.height) * 0.36,
+                            height: min(proxy.size.width, proxy.size.height) * 0.36
+                        )
+                        .background(.black.opacity(0.58), in: Circle())
+                        .shadow(color: .black.opacity(0.22), radius: 4, y: 2)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if photo.mediaKind == .link {
+                    Image(systemName: "link")
+                        .font(.system(size: min(proxy.size.width, proxy.size.height) * 0.1, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(
+                            width: min(proxy.size.width, proxy.size.height) * 0.24,
+                            height: min(proxy.size.width, proxy.size.height) * 0.24
+                        )
+                        .background(.black.opacity(0.64), in: Circle())
+                        .shadow(color: .black.opacity(0.22), radius: 3, y: 1)
+                        .padding(8)
+                }
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
@@ -1708,17 +2114,24 @@ private struct FeedFolderCard: View {
                     .frame(width: size.width * 0.20, height: 59)
                     .position(x: size.width * 0.10, y: 61)
 
-                miniMemo(photo: previewPhoto(at: 0), width: size.width * 0.52, height: 72)
-                    .rotationEffect(.degrees(-4))
-                    .position(x: size.width * 0.35, y: 40)
+                if !photos.isEmpty {
+                    miniMemo(photo: previewPhoto(at: 0), width: size.width * 0.52, height: 72)
+                        .rotationEffect(.degrees(-4))
+                        .position(x: size.width * 0.35, y: 40)
 
-                miniMemo(photo: previewPhoto(at: 1), width: size.width * 0.55, height: 78)
-                    .rotationEffect(.degrees(10))
-                    .position(x: size.width * 0.62, y: 36)
+                    miniMemo(photo: previewPhoto(at: 1), width: size.width * 0.55, height: 78)
+                        .rotationEffect(.degrees(10))
+                        .position(x: size.width * 0.62, y: 36)
 
-                miniMemo(photo: previewPhoto(at: 2), width: size.width * 0.48, height: 70)
-                    .rotationEffect(.degrees(1))
-                    .position(x: size.width * 0.52, y: 48)
+                    miniMemo(photo: previewPhoto(at: 2), width: size.width * 0.48, height: 70)
+                        .rotationEffect(.degrees(1))
+                        .position(x: size.width * 0.52, y: 48)
+                } else {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(.black.opacity(0.48))
+                        .position(x: size.width / 2, y: 42)
+                }
 
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(color)

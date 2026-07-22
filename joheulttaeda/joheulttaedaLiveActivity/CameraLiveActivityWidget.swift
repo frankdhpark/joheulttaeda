@@ -15,10 +15,11 @@ struct CameraLiveActivityWidget: Widget {
                     CameraActivityPhotoMosaic(
                         thumbnailIDs: context.state.thumbnailIDs,
                         singleRowBaseCellSize: 110,
-                        multiRowCellSize: 58
+                        multiRowCellSize: 53,
+                        rowSpacing: 3
                     )
                     .padding(.horizontal, 4)
-                    .padding(.vertical, 3)
+                    .padding(.vertical, 1)
                 }
             } compactLeading: {
                 CameraActivityThumbnail(
@@ -52,7 +53,8 @@ private struct CameraLockScreenActivityView: View {
         CameraActivityPhotoMosaic(
             thumbnailIDs: context.state.thumbnailIDs,
             singleRowBaseCellSize: 118,
-            multiRowCellSize: 64
+            multiRowCellSize: 64,
+            rowSpacing: 6
         )
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 12)
@@ -107,6 +109,7 @@ private struct CameraActivityPhotoMosaic: View {
     let thumbnailIDs: [String]
     let singleRowBaseCellSize: CGFloat
     let multiRowCellSize: CGFloat
+    let rowSpacing: CGFloat
 
     private var visibleIDs: [String] {
         Array(thumbnailIDs.prefix(8))
@@ -154,7 +157,7 @@ private struct CameraActivityPhotoMosaic: View {
                 .frame(width: cellSize, height: cellSize)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
-                VStack(spacing: 6) {
+                VStack(spacing: rowSpacing) {
                     ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                         HStack(spacing: 6) {
                             ForEach(row, id: \.self) { thumbnailID in

@@ -16,6 +16,16 @@
 		B1C2D3E4000000000000000A /* joheulttaedaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1C2D3E40000000000000004 /* joheulttaedaApp.swift */; };
 		B1C2D3E4000000000000000B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1C2D3E40000000000000005 /* Assets.xcassets */; };
 		B1C2D3E4000000000000000D /* IdeaPhotos in Resources */ = {isa = PBXBuildFile; fileRef = B1C2D3E4000000000000000C /* IdeaPhotos */; };
+		C10000000000000000000001 /* IdeaImportContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000008 /* IdeaImportContract.swift */; };
+		C10000000000000000000002 /* IdeaImportContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000008 /* IdeaImportContract.swift */; };
+		C10000000000000000000003 /* IdeaMediaItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000009 /* IdeaMediaItem.swift */; };
+		C10000000000000000000004 /* IdeaMediaStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000000000000000000000A /* IdeaMediaStorage.swift */; };
+		C10000000000000000000005 /* IdeaImportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1000000000000000000000B /* IdeaImportCoordinator.swift */; };
+		C10000000000000000000006 /* joheulttaedaShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C10000000000000000000007 /* joheulttaedaShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		D10000000000000000000001 /* InstagramEmbedPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D10000000000000000000002 /* InstagramEmbedPlayerView.swift */; };
+		E10000000000000000000001 /* MemoryPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000002 /* MemoryPhoto.swift */; };
+		E10000000000000000000003 /* MemoryPhotoVisionClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000004 /* MemoryPhotoVisionClassifier.swift */; };
+		E10000000000000000000005 /* MemoryPhotoLibraryImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000006 /* MemoryPhotoLibraryImporter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -25,6 +35,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = A1B2C3D40000000000000007;
 			remoteInfo = joheulttaedaLiveActivity;
+		};
+		C10000000000000000000015 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 9C4AAEAC300DA23800C92EDE /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C10000000000000000000011;
+			remoteInfo = joheulttaedaShare;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -36,6 +53,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				A1B2C3D4000000000000000E /* joheulttaedaLiveActivity.appex in Embed Foundation Extensions */,
+				C10000000000000000000006 /* joheulttaedaShare.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -53,6 +71,15 @@
 		B1C2D3E40000000000000005 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B1C2D3E40000000000000006 /* joheulttaeda.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = joheulttaeda.entitlements; sourceTree = "<group>"; };
 		B1C2D3E4000000000000000C /* IdeaPhotos */ = {isa = PBXFileReference; lastKnownFileType = folder; path = IdeaPhotos; sourceTree = "<group>"; };
+		C10000000000000000000007 /* joheulttaedaShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = joheulttaedaShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C10000000000000000000008 /* IdeaImportContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdeaImportContract.swift; sourceTree = "<group>"; };
+		C10000000000000000000009 /* IdeaMediaItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdeaMediaItem.swift; sourceTree = "<group>"; };
+		C1000000000000000000000A /* IdeaMediaStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdeaMediaStorage.swift; sourceTree = "<group>"; };
+		C1000000000000000000000B /* IdeaImportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdeaImportCoordinator.swift; sourceTree = "<group>"; };
+		D10000000000000000000002 /* InstagramEmbedPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstagramEmbedPlayerView.swift; sourceTree = "<group>"; };
+		E10000000000000000000002 /* MemoryPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhoto.swift; sourceTree = "<group>"; };
+		E10000000000000000000004 /* MemoryPhotoVisionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhotoVisionClassifier.swift; sourceTree = "<group>"; };
+		E10000000000000000000006 /* MemoryPhotoLibraryImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhotoLibraryImporter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -63,6 +90,13 @@
 			);
 			target = A1B2C3D40000000000000007 /* joheulttaedaLiveActivity */;
 		};
+		C1000000000000000000000D /* Exceptions for "joheulttaedaShare" folder in "joheulttaedaShare" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = C10000000000000000000011 /* joheulttaedaShare */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -72,6 +106,14 @@
 				A1B2C3D40000000000000012 /* Exceptions for "joheulttaedaLiveActivity" folder in "joheulttaedaLiveActivity" target */,
 			);
 			path = joheulttaedaLiveActivity;
+			sourceTree = "<group>";
+		};
+		C1000000000000000000000C /* joheulttaedaShare */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				C1000000000000000000000D /* Exceptions for "joheulttaedaShare" folder in "joheulttaedaShare" target */,
+			);
+			path = joheulttaedaShare;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -91,6 +133,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C1000000000000000000000F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -99,6 +148,7 @@
 			children = (
 				9C4AAEB6300DA23800C92EDE /* joheulttaeda */,
 				A1B2C3D40000000000000002 /* joheulttaedaLiveActivity */,
+				C1000000000000000000000C /* joheulttaedaShare */,
 				A1B2C3D40000000000000003 /* Shared */,
 				9C4AAEB5300DA23800C92EDE /* Products */,
 			);
@@ -109,6 +159,7 @@
 			children = (
 				9C4AAEB4300DA23800C92EDE /* joheulttaeda.app */,
 				A1B2C3D40000000000000001 /* joheulttaedaLiveActivity.appex */,
+				C10000000000000000000007 /* joheulttaedaShare.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -117,6 +168,13 @@
 			isa = PBXGroup;
 			children = (
 				B1C2D3E40000000000000001 /* ContentView.swift */,
+				D10000000000000000000002 /* InstagramEmbedPlayerView.swift */,
+				C10000000000000000000009 /* IdeaMediaItem.swift */,
+				C1000000000000000000000A /* IdeaMediaStorage.swift */,
+				C1000000000000000000000B /* IdeaImportCoordinator.swift */,
+				E10000000000000000000002 /* MemoryPhoto.swift */,
+				E10000000000000000000004 /* MemoryPhotoVisionClassifier.swift */,
+				E10000000000000000000006 /* MemoryPhotoLibraryImporter.swift */,
 				B1C2D3E40000000000000002 /* MemorySectionView.swift */,
 				B1C2D3E40000000000000003 /* CameraLiveActivityManager.swift */,
 				B1C2D3E40000000000000004 /* joheulttaedaApp.swift */,
@@ -131,6 +189,7 @@
 			isa = PBXGroup;
 			children = (
 				A1B2C3D40000000000000004 /* CameraActivityAttributes.swift */,
+				C10000000000000000000008 /* IdeaImportContract.swift */,
 			);
 			path = Shared;
 			sourceTree = "<group>";
@@ -151,6 +210,7 @@
 			);
 			dependencies = (
 				A1B2C3D40000000000000011 /* PBXTargetDependency */,
+				C10000000000000000000016 /* PBXTargetDependency */,
 			);
 			name = joheulttaeda;
 			packageProductDependencies = (
@@ -181,6 +241,28 @@
 			productReference = A1B2C3D40000000000000001 /* joheulttaedaLiveActivity.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		C10000000000000000000011 /* joheulttaedaShare */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C10000000000000000000012 /* Build configuration list for PBXNativeTarget "joheulttaedaShare" */;
+			buildPhases = (
+				C1000000000000000000000E /* Sources */,
+				C1000000000000000000000F /* Frameworks */,
+				C10000000000000000000010 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C1000000000000000000000C /* joheulttaedaShare */,
+			);
+			name = joheulttaedaShare;
+			packageProductDependencies = (
+			);
+			productName = joheulttaedaShare;
+			productReference = C10000000000000000000007 /* joheulttaedaShare.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -207,6 +289,14 @@
 							};
 						};
 					};
+					C10000000000000000000011 = {
+						CreatedOnToolsVersion = 26.5;
+						SystemCapabilities = {
+							com.apple.ApplicationGroups.iOS = {
+								enabled = 1;
+							};
+						};
+					};
 				};
 			};
 			buildConfigurationList = 9C4AAEAF300DA23800C92EDE /* Build configuration list for PBXProject "joheulttaeda" */;
@@ -225,6 +315,7 @@
 			targets = (
 				9C4AAEB3300DA23800C92EDE /* joheulttaeda */,
 				A1B2C3D40000000000000007 /* joheulttaedaLiveActivity */,
+				C10000000000000000000011 /* joheulttaedaShare */,
 			);
 		};
 /* End PBXProject section */
@@ -246,6 +337,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C10000000000000000000010 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -253,6 +351,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D10000000000000000000001 /* InstagramEmbedPlayerView.swift in Sources */,
+				C10000000000000000000005 /* IdeaImportCoordinator.swift in Sources */,
+				C10000000000000000000004 /* IdeaMediaStorage.swift in Sources */,
+				C10000000000000000000003 /* IdeaMediaItem.swift in Sources */,
+				C10000000000000000000001 /* IdeaImportContract.swift in Sources */,
+				E10000000000000000000001 /* MemoryPhoto.swift in Sources */,
+				E10000000000000000000003 /* MemoryPhotoVisionClassifier.swift in Sources */,
+				E10000000000000000000005 /* MemoryPhotoLibraryImporter.swift in Sources */,
 				B1C2D3E40000000000000009 /* CameraLiveActivityManager.swift in Sources */,
 				A1B2C3D40000000000000005 /* CameraActivityAttributes.swift in Sources */,
 				B1C2D3E40000000000000007 /* ContentView.swift in Sources */,
@@ -269,6 +375,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		C1000000000000000000000E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C10000000000000000000002 /* IdeaImportContract.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -276,6 +390,11 @@
 			isa = PBXTargetDependency;
 			target = A1B2C3D40000000000000007 /* joheulttaedaLiveActivity */;
 			targetProxy = A1B2C3D40000000000000010 /* PBXContainerItemProxy */;
+		};
+		C10000000000000000000016 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C10000000000000000000011 /* joheulttaedaShare */;
+			targetProxy = C10000000000000000000015 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -412,7 +531,10 @@
 				DEVELOPMENT_TEAM = 4Y8TKL3X4R;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_InstagramOEmbedAPIKey = "";
+				INFOPLIST_KEY_InstagramOEmbedResolverURL = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "선택한 추억과 함께 사용할 사진을 촬영하기 위해 카메라 접근이 필요합니다.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "기본 카메라로 촬영한 새 사진을 Memory로 가져와 자동 분류하기 위해 사진 보관함 접근이 필요합니다.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -447,7 +569,10 @@
 				DEVELOPMENT_TEAM = 4Y8TKL3X4R;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_InstagramOEmbedAPIKey = "";
+				INFOPLIST_KEY_InstagramOEmbedResolverURL = "";
 				INFOPLIST_KEY_NSCameraUsageDescription = "선택한 추억과 함께 사용할 사진을 촬영하기 위해 카메라 접근이 필요합니다.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "기본 카메라로 촬영한 새 사진을 Memory로 가져와 자동 분류하기 위해 사진 보관함 접근이 필요합니다.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -523,6 +648,58 @@
 			};
 			name = Release;
 		};
+		C10000000000000000000013 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = joheulttaedaShare/joheulttaedaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4Y8TKL3X4R;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = joheulttaedaShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.folitune.joheulttaeda.Share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C10000000000000000000014 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = joheulttaedaShare/joheulttaedaShare.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4Y8TKL3X4R;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = joheulttaedaShare/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.folitune.joheulttaeda.Share;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -549,6 +726,15 @@
 			buildConfigurations = (
 				A1B2C3D4000000000000000C /* Debug */,
 				A1B2C3D4000000000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C10000000000000000000012 /* Build configuration list for PBXNativeTarget "joheulttaedaShare" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C10000000000000000000013 /* Debug */,
+				C10000000000000000000014 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
