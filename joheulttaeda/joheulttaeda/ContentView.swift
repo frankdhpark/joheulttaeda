@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var selectedTab: HomeTab = .home
     @State private var folderPresentation: IdeaFolderPresentation?
     @State private var selectedIdeaPhotoIDs: Set<String> = []
+    @StateObject private var importPresentationStore =
+        MemoryPhotoImportPresentationStore.shared
     @Namespace private var ideaTransitionNamespace
 
     var body: some View {
@@ -129,6 +131,18 @@ struct ContentView: View {
                     .transition(.opacity)
                     .zIndex(10)
                 }
+
+                if importPresentationStore.isVisible,
+                   let importedPhotoBatch = importPresentationStore.batch {
+                    MemoryPhotoImportCompletionView(
+                        photoIDs: importedPhotoBatch.photoIDs,
+                        previews: importPresentationStore.previews,
+                        onSavingMoments: openSavingMoments
+                    )
+                    .frame(width: width, height: height)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
+                    .zIndex(100)
+                }
             }
             .frame(width: width, height: height)
             .clipped()
@@ -136,6 +150,15 @@ struct ContentView: View {
         .background(DesignColor.background.ignoresSafeArea())
         .preferredColorScheme(.light)
     }
+
+    private func openSavingMoments() {
+        withAnimation(.smooth(duration: 0.5, extraBounce: 0)) {
+            importPresentationStore.clear()
+            folderPresentation = nil
+            selectedTab = .memory
+        }
+    }
+
 }
 
 private struct IdeaFeedView: View {

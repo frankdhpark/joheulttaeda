@@ -26,6 +26,7 @@
 		E10000000000000000000001 /* MemoryPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000002 /* MemoryPhoto.swift */; };
 		E10000000000000000000003 /* MemoryPhotoVisionClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000004 /* MemoryPhotoVisionClassifier.swift */; };
 		E10000000000000000000005 /* MemoryPhotoLibraryImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000006 /* MemoryPhotoLibraryImporter.swift */; };
+		E10000000000000000000007 /* MemoryPhotoImportCompletionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E10000000000000000000008 /* MemoryPhotoImportCompletionView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -80,6 +81,7 @@
 		E10000000000000000000002 /* MemoryPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhoto.swift; sourceTree = "<group>"; };
 		E10000000000000000000004 /* MemoryPhotoVisionClassifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhotoVisionClassifier.swift; sourceTree = "<group>"; };
 		E10000000000000000000006 /* MemoryPhotoLibraryImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhotoLibraryImporter.swift; sourceTree = "<group>"; };
+		E10000000000000000000008 /* MemoryPhotoImportCompletionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MemoryPhotoImportCompletionView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -175,6 +177,7 @@
 				E10000000000000000000002 /* MemoryPhoto.swift */,
 				E10000000000000000000004 /* MemoryPhotoVisionClassifier.swift */,
 				E10000000000000000000006 /* MemoryPhotoLibraryImporter.swift */,
+				E10000000000000000000008 /* MemoryPhotoImportCompletionView.swift */,
 				B1C2D3E40000000000000002 /* MemorySectionView.swift */,
 				B1C2D3E40000000000000003 /* CameraLiveActivityManager.swift */,
 				B1C2D3E40000000000000004 /* joheulttaedaApp.swift */,
@@ -359,6 +362,7 @@
 				E10000000000000000000001 /* MemoryPhoto.swift in Sources */,
 				E10000000000000000000003 /* MemoryPhotoVisionClassifier.swift in Sources */,
 				E10000000000000000000005 /* MemoryPhotoLibraryImporter.swift in Sources */,
+				E10000000000000000000007 /* MemoryPhotoImportCompletionView.swift in Sources */,
 				B1C2D3E40000000000000009 /* CameraLiveActivityManager.swift in Sources */,
 				A1B2C3D40000000000000005 /* CameraActivityAttributes.swift in Sources */,
 				B1C2D3E40000000000000007 /* ContentView.swift in Sources */,

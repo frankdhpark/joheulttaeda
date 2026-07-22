@@ -133,6 +133,8 @@ enum MemoryPhotoStorage {
     }
 
     private static let rootDirectoryName = "MemoryPhotos"
+    private static let thumbnailMaxPixelSize: CGFloat = 1_280
+    private static let thumbnailJPEGQuality: CGFloat = 0.92
 
     static func store(
         photoData: Data,
@@ -140,8 +142,7 @@ enum MemoryPhotoStorage {
         id: UUID
     ) throws -> StoredPhoto {
         guard
-            let source = CGImageSourceCreateWithData(photoData as CFData, nil),
-            let image = UIImage(data: photoData)
+            let source = CGImageSourceCreateWithData(photoData as CFData, nil)
         else {
             throw MemoryPhotoStorageError.invalidImageData
         }
@@ -153,7 +154,13 @@ enum MemoryPhotoStorage {
             let originalURL = directory.appendingPathComponent("original.\(originalExtension)")
             try photoData.write(to: originalURL, options: .atomic)
 
-            guard let thumbnailData = thumbnailData(from: image, maxDimension: 640) else {
+            guard
+                let thumbnailData = thumbnailData(
+                    from: source,
+                    maxDimension: thumbnailMaxPixelSize,
+                    compressionQuality: thumbnailJPEGQuality
+                )
+            else {
                 throw MemoryPhotoStorageError.thumbnailCreationFailed
             }
 
@@ -428,24 +435,29 @@ enum MemoryPhotoStorage {
         return fileExtension
     }
 
-    private static func thumbnailData(from image: UIImage, maxDimension: CGFloat) -> Data? {
-        let sourceSize = image.size
-        guard sourceSize.width > 0, sourceSize.height > 0 else { return nil }
+    private static func thumbnailData(
+        from source: CGImageSource,
+        maxDimension: CGFloat,
+        compressionQuality: CGFloat
+    ) -> Data? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxDimension),
+            kCGImageSourceShouldCacheImmediately: true
+        ]
 
-        let scale = min(maxDimension / max(sourceSize.width, sourceSize.height), 1)
-        let targetSize = CGSize(
-            width: max(1, sourceSize.width * scale),
-            height: max(1, sourceSize.height * scale)
-        )
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        format.opaque = true
-        format.preferredRange = .standard
-
-        let thumbnail = UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(
+            source,
+            0,
+            options as CFDictionary
+        ) else {
+            return nil
         }
-        return thumbnail.jpegData(compressionQuality: 0.84)
+
+        return UIImage(cgImage: thumbnail).jpegData(
+            compressionQuality: compressionQuality
+        )
     }
 }
 
